@@ -1,0 +1,29 @@
+---
+layout: default
+---
+
+{% assign words = page.content | strip_html | number_of_words %}
+{% assign reading_time = words | divided_by: 180 %}
+{% if reading_time < 1 %}
+  {% assign reading_time = 1 %}
+{% endif %}
+
+<article class="post-shell">
+  <header class="post-hero">
+    <div class="post-meta-row">
+      <span>{{ page.date | date: "%B %-d, %Y" }}</span>
+      <span>{{ reading_time }} min read</span>
+    </div>
+    <h1>{{ page.title }}</h1>
+    {% if page.tags %}
+    <div class="tag-row">
+      {% for tag in page.tags %}
+      <span class="tag-pill">{{ tag }}</span>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </header>
+  <div class="post-body">
+    {{ content }}
+  </div>
+</article>

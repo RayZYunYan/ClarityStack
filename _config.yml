@@ -1,0 +1,20 @@
+title: ClarityStack
+description: AI news and engineering analysis produced through a privacy-aware automation pipeline.
+url: https://rayzyunyan.github.io
+baseurl: /ClarityStack
+lang: en-US
+timezone: America/Los_Angeles
+permalink: /:year/:month/:day/:title/
+markdown: kramdown
+highlighter: rouge
+kramdown:
+  syntax_highlighter: rouge
+  syntax_highlighter_opts:
+    css_class: highlight
+defaults:
+  - scope:
+      path: ""
+      type: posts
+    values:
+      layout: post
+excerpt_separator: "\n\n"

@@ -8,22 +8,29 @@ NemoClaw sandbox (on Mac mini) runs an OpenClaw agent powered by Gemini Flash (f
 
 ---
 
-## Prerequisites (human must complete before Codex starts)
+## Prerequisites
 
-- [x] GitHub repo exists: `RayZYunYan/ClarityStack` (https://github.com/RayZYunYan/ClarityStack.git)
-- [ ] Enable GitHub Pages on the repo (Settings → Pages → source: GitHub Actions)
-- [ ] Create GitHub Environment `production` with required reviewer (yourself)
-- [ ] Get Gemini API key from aistudio.google.com (free)
-- [ ] Get LinkedIn OAuth token from developer.linkedin.com
-- [ ] X/Twitter: App "ClarityStack" already exists in Developer Console (pay-per-use). Either switch to Free tier in settings, or add a small credit ($5) for posting. Free tier allows ~500 posts/month which is plenty.
-- [ ] Install Docker Desktop on Mac mini
-- [ ] Store all secrets in a local `.env` file (never commit)
+**Already done:**
+- [x] GitHub repo: `RayZYunYan/ClarityStack` (https://github.com/RayZYunYan/ClarityStack.git)
+- [x] GitHub Pages enabled (source: GitHub Actions)
+- [x] GitHub Environment `production` with required reviewer configured
+- [x] Gemini API key (free tier, from aistudio.google.com)
+- [x] X/Twitter App configured (Web App / Automated Bot, Read+Write, OAuth 2.0). Client ID and Secret in `.env`
+- [x] LinkedIn App configured (Share on LinkedIn / w_member_social approved). Credentials in `.env`
+- [x] All secrets stored in local `.env`
+
+**Still needed (not blocking Codex):**
+- [ ] Add X API credit ($5) before first real post
+- [ ] Install Docker Desktop on Mac mini (for NemoClaw — only needed when deploying to production)
+
+**Dev environment:** Windows (current) → Mac mini (production server later). Codex writes all code on Windows. NemoClaw sandbox setup (Task 1) is a manual step done on the Mac mini when ready to deploy — Codex does NOT execute it, only documents the steps.
 
 ---
 
-## Task 1: NemoClaw sandbox setup
+## Task 1: NemoClaw sandbox setup (MANUAL — not for Codex)
 
 **Goal:** Install NemoClaw on Mac mini, configure with Gemini Flash as the inference provider.
+**When:** After all code is written and tested on Windows, do this on the Mac mini to set up the production environment.
 
 **Steps:**
 
@@ -371,14 +378,17 @@ ai-pipeline/
 
 ## Execution order for Codex
 
-1. **Task 7 first** — Set up the blog repo skeleton + GitHub Actions (no dependencies)
+**Codex writes these (in order):**
+1. **Task 7** — Blog repo skeleton + GitHub Actions (no dependencies)
 2. **Task 2** — Fetcher (standalone, testable)
 3. **Task 3** — Privacy scanner (standalone, testable)
 4. **Task 4** — Content generator (depends on 3)
 5. **Task 5** — Publishers (standalone each, testable with `--dry-run`)
 6. **Task 6** — Orchestrator (integrates 2-5)
-7. **Task 1** — NemoClaw setup (environment config, done on actual Mac mini)
-8. **Task 8** — OpenClaw skill (after everything else works)
+7. **Task 8** — OpenClaw skill file
+
+**Human does these manually (on Mac mini, later):**
+8. **Task 1** — NemoClaw sandbox setup + deploy code into sandbox
 
 ---
 

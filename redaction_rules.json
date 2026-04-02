@@ -1,0 +1,25 @@
+{
+  "patterns": [
+    {
+      "regex": "sk-[a-zA-Z0-9]{20,}",
+      "label": "API key"
+    },
+    {
+      "regex": "ghp_[a-zA-Z0-9]{36}",
+      "label": "GitHub token"
+    },
+    {
+      "regex": "nvapi-[a-zA-Z0-9-]+",
+      "label": "NVIDIA key"
+    },
+    {
+      "regex": "/Users/[a-zA-Z0-9._-]+",
+      "label": "Local path"
+    },
+    {
+      "regex": "AIza[a-zA-Z0-9_-]{35}",
+      "label": "Google API key"
+    }
+  ],
+  "placeholder": "[REDACTED]"
+}

@@ -1,1 +1,13 @@
 .env
+.venv/
+__pycache__/
+*.pyc
+_site/
+.jekyll-cache/
+logs/*.log
+outbox/
+.claude/
+!.claude/
+!.claude/skills/
+!.claude/skills/pipeline-review/
+!.claude/skills/pipeline-review/SKILL.md

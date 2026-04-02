@@ -1,0 +1,289 @@
+"""Fetch AI-related news from ArXiv, GitHub Trending, and Hacker News."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import html
+import json
+import logging
+import re
+import sys
+import urllib.parse
+import xml.etree.ElementTree as ET
+from typing import Any
+
+import requests
+
+LOGGER = logging.getLogger(__name__)
+USER_AGENT = "ClarityStackFetcher/1.0 (+https://github.com/RayZYunYan/ClarityStack)"
+KEYWORDS = {
+    "ai",
+    "artificial intelligence",
+    "ml",
+    "machine learning",
+    "llm",
+    "transformer",
+    "rag",
+    "diffusion",
+    "multimodal",
+    "agent",
+    "openai",
+    "anthropic",
+    "gemini",
+}
+TOKEN_KEYWORDS = {keyword for keyword in KEYWORDS if " " not in keyword}
+PHRASE_KEYWORDS = {keyword for keyword in KEYWORDS if " " in keyword}
+
+
+def normalize_whitespace(text: str) -> str:
+    """Collapse repeated whitespace into single spaces."""
+    return re.sub(r"\s+", " ", text or "").strip()
+
+
+def strip_tags(text: str) -> str:
+    """Remove simple HTML tags from a string."""
+    return normalize_whitespace(re.sub(r"<[^>]+>", " ", html.unescape(text)))
+
+
+def split_sentences(text: str, max_sentences: int = 2) -> str:
+    """Return the first few sentences from a text block."""
+    parts = re.split(r"(?<=[.!?])\s+", normalize_whitespace(text))
+    summary = " ".join(part for part in parts[:max_sentences] if part)
+    if not summary:
+        summary = normalize_whitespace(text)[:280]
+    return summary[:400].strip()
+
+
+def keyword_hits(*values: str) -> int:
+    """Count AI-related keyword hits across text values."""
+    corpus = " ".join(normalize_whitespace(value).lower() for value in values)
+    tokens = set(re.findall(r"[a-z0-9]+", corpus))
+    token_hits = sum(1 for keyword in TOKEN_KEYWORDS if keyword in tokens)
+    phrase_hits = sum(1 for keyword in PHRASE_KEYWORDS if keyword in corpus)
+    return token_hits + phrase_hits
+
+
+def compute_relevance(source: str, title: str, summary: str, extra_weight: float = 0.0) -> float:
+    """Generate a normalized relevance score."""
+    hits = keyword_hits(title, summary)
+    source_bonus = {"arxiv": 0.18, "github": 0.14, "hackernews": 0.1}.get(source, 0.0)
+    score = min(0.99, 0.38 + (hits * 0.08) + source_bonus + extra_weight)
+    return round(score, 2)
+
+
+def fetch_arxiv(limit: int = 5, session: requests.Session | None = None) -> list[dict[str, Any]]:
+    """Fetch recent AI and CL papers from ArXiv."""
+    current_utc = dt.datetime.now(dt.timezone.utc)
+    cutoff = current_utc - dt.timedelta(days=1)
+    search_query = urllib.parse.quote('(cat:cs.AI OR cat:cs.CL)')
+    url = (
+        "https://export.arxiv.org/api/query?"
+        f"search_query={search_query}&sortBy=submittedDate&sortOrder=descending&max_results=20"
+    )
+    client = session or requests.Session()
+    response = client.get(url, headers={"User-Agent": USER_AGENT}, timeout=20)
+    response.raise_for_status()
+
+    root = ET.fromstring(response.text)
+    namespace = {"atom": "http://www.w3.org/2005/Atom"}
+    items: list[dict[str, Any]] = []
+
+    for entry in root.findall("atom:entry", namespace):
+        published_text = entry.findtext("atom:published", default="", namespaces=namespace)
+        if not published_text:
+            continue
+        published = dt.datetime.fromisoformat(published_text.replace("Z", "+00:00"))
+        if published < cutoff:
+            continue
+
+        title = normalize_whitespace(entry.findtext("atom:title", default="", namespaces=namespace))
+        summary = split_sentences(entry.findtext("atom:summary", default="", namespaces=namespace), max_sentences=3)
+        url_value = normalize_whitespace(entry.findtext("atom:id", default="", namespaces=namespace))
+        score = compute_relevance("arxiv", title, summary, extra_weight=0.05)
+
+        items.append(
+            {
+                "title": title,
+                "source": "arxiv",
+                "url": url_value,
+                "summary": summary,
+                "date": published.date().isoformat(),
+                "relevance_score": score,
+            }
+        )
+
+        if len(items) >= limit:
+            break
+
+    return items
+
+
+def fetch_github_trending(limit: int = 5, session: requests.Session | None = None) -> list[dict[str, Any]]:
+    """Scrape the GitHub Trending page and keep AI-related repositories."""
+    client = session or requests.Session()
+    response = client.get(
+        "https://github.com/trending?since=daily",
+        headers={"User-Agent": USER_AGENT},
+        timeout=20,
+    )
+    response.raise_for_status()
+    page = response.text
+    blocks = re.findall(r"<article class=\"Box-row\".*?</article>", page, re.S)
+    today = dt.date.today().isoformat()
+    items: list[dict[str, Any]] = []
+
+    for block in blocks:
+        repo_match = re.search(r'href=\"/([^\"#?]+/[^\"#?]+)\"', block)
+        if not repo_match:
+            continue
+        repo_name = repo_match.group(1).strip()
+        if repo_name.lower().startswith("sponsors/"):
+            continue
+        description_match = re.search(r"<p.*?>(.*?)</p>", block, re.S)
+        description = strip_tags(description_match.group(1)) if description_match else ""
+        language_match = re.search(r'programmingLanguage\"[^>]*>\s*(.*?)\s*</span>', block, re.S)
+        language = strip_tags(language_match.group(1)) if language_match else ""
+        stars_match = re.search(r"([\d,]+)\s+stars today", block)
+        stars_today = stars_match.group(1) if stars_match else "0"
+
+        title = repo_name
+        summary = normalize_whitespace(
+            f"Trending GitHub repository. {description} Language: {language or 'unknown'}. "
+            f"Stars today: {stars_today}."
+        )
+        if keyword_hits(title, summary) == 0:
+            continue
+
+        items.append(
+            {
+                "title": title,
+                "source": "github",
+                "url": f"https://github.com/{repo_name}",
+                "summary": split_sentences(summary, max_sentences=2),
+                "date": today,
+                "relevance_score": compute_relevance("github", title, summary),
+            }
+        )
+
+        if len(items) >= limit:
+            break
+
+    return items
+
+
+def fetch_hacker_news(limit: int = 5, session: requests.Session | None = None) -> list[dict[str, Any]]:
+    """Fetch top Hacker News stories and keep AI-related entries."""
+    client = session or requests.Session()
+    ids_response = client.get(
+        "https://hacker-news.firebaseio.com/v0/topstories.json",
+        headers={"User-Agent": USER_AGENT},
+        timeout=20,
+    )
+    ids_response.raise_for_status()
+    story_ids = ids_response.json()[:60]
+    today = dt.date.today().isoformat()
+    items: list[dict[str, Any]] = []
+
+    for story_id in story_ids:
+        item_response = client.get(
+            f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json",
+            headers={"User-Agent": USER_AGENT},
+            timeout=20,
+        )
+        item_response.raise_for_status()
+        story = item_response.json() or {}
+        if story.get("type") != "story":
+            continue
+        title = normalize_whitespace(story.get("title", ""))
+        if "hiring" in title.lower():
+            continue
+        url_value = story.get("url") or f"https://news.ycombinator.com/item?id={story_id}"
+        score = int(story.get("score", 0))
+        comments = int(story.get("descendants", 0))
+        summary = (
+            f"Hacker News discussion with score {score} and {comments} comments. "
+            f"Original link: {url_value}."
+        )
+        if keyword_hits(title, summary) == 0:
+            continue
+
+        items.append(
+            {
+                "title": title,
+                "source": "hackernews",
+                "url": url_value,
+                "summary": split_sentences(summary, max_sentences=2),
+                "date": today,
+                "relevance_score": compute_relevance(
+                    "hackernews",
+                    title,
+                    summary,
+                    extra_weight=min(score / 500, 0.08),
+                ),
+            }
+        )
+
+        if len(items) >= limit:
+            break
+
+    return items
+
+
+def deduplicate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Deduplicate items by URL while keeping the highest scoring variant."""
+    deduped: dict[str, dict[str, Any]] = {}
+    for item in items:
+        url_value = item["url"]
+        existing = deduped.get(url_value)
+        if existing is None or item["relevance_score"] > existing["relevance_score"]:
+            deduped[url_value] = item
+    return list(deduped.values())
+
+
+def fetch_news(limit: int = 10) -> list[dict[str, Any]]:
+    """Fetch and rank AI-related items across all configured sources."""
+    with requests.Session() as session:
+        candidates = []
+        candidates.extend(fetch_arxiv(limit=5, session=session))
+        candidates.extend(fetch_github_trending(limit=5, session=session))
+        candidates.extend(fetch_hacker_news(limit=5, session=session))
+
+    unique_items = deduplicate_items(candidates)
+    ranked = sorted(unique_items, key=lambda item: item["relevance_score"], reverse=True)
+    return ranked[: max(5, min(limit, 10))]
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Create the CLI argument parser."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--limit", type=int, default=8, help="Maximum number of items to emit.")
+    parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
+    return parser
+
+
+def main() -> int:
+    """Run the fetcher CLI."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
+    args = build_parser().parse_args()
+
+    try:
+        items = fetch_news(limit=args.limit)
+    except requests.RequestException as exc:
+        LOGGER.error("Failed to fetch news: %s", exc)
+        return 1
+
+    json.dump(
+        items,
+        sys.stdout,
+        indent=2 if args.pretty else None,
+        ensure_ascii=False,
+    )
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

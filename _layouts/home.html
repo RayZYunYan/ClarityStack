@@ -1,0 +1,43 @@
+---
+layout: default
+---
+
+<section class="hero-card">
+  <p class="eyebrow">ClarityStack AI Pipeline</p>
+  <h1>{{ page.title | default: site.title }}</h1>
+  <p class="hero-copy">{{ site.description }}</p>
+</section>
+
+<section class="post-grid">
+  {% if site.posts.size > 0 %}
+    {% for post in site.posts %}
+      {% assign excerpt_words = post.content | strip_html | number_of_words %}
+      {% assign excerpt_reading_time = excerpt_words | divided_by: 180 %}
+      {% if excerpt_reading_time < 1 %}
+        {% assign excerpt_reading_time = 1 %}
+      {% endif %}
+      <article class="post-card">
+        <a class="post-card-link" href="{{ post.url | relative_url }}">
+          <div class="post-card-meta">
+            <span>{{ post.date | date: "%b %-d, %Y" }}</span>
+            <span>{{ excerpt_reading_time }} min read</span>
+          </div>
+          <h2>{{ post.title }}</h2>
+          {% if post.tags %}
+          <div class="tag-row compact">
+            {% for tag in post.tags limit:3 %}
+            <span class="tag-pill">{{ tag }}</span>
+            {% endfor %}
+          </div>
+          {% endif %}
+          <p class="post-excerpt">{{ post.excerpt | strip_html | strip_newlines | truncate: 180 }}</p>
+        </a>
+      </article>
+    {% endfor %}
+  {% else %}
+    <article class="post-card empty-state">
+      <h2>No posts yet</h2>
+      <p class="post-excerpt">The first approved ClarityStack roundup will appear here once the pipeline publishes a post.</p>
+    </article>
+  {% endif %}
+</section>
