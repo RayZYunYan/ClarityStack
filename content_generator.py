@@ -51,6 +51,30 @@ def select_focus_items(news_items: list[dict[str, Any]], limit: int) -> list[dic
     return news_items[:limit]
 
 
+def naturalize_title(title: str) -> str:
+    """Clean a title for use in fallback prose."""
+    return collapse_text(title).rstrip(". ")
+
+
+def infer_item_angle(item: dict[str, Any]) -> str:
+    """Create a cleaner, more human-readable angle for fallback copy."""
+    title = naturalize_title(item["title"])
+    source = item.get("source", "")
+
+    lower_title = title.lower()
+    if source == "arxiv":
+        return "It points to a fresh research signal worth watching for AI practitioners."
+    if "open source" in lower_title or "open-source" in lower_title:
+        return "It shows continued momentum behind practical, builder-friendly AI tooling."
+    if "agent" in lower_title:
+        return "It highlights how quickly agent-style AI systems are becoming more practical."
+    if "compute" in lower_title or "cost" in lower_title or "money furnace" in lower_title:
+        return "It is a useful reminder that AI economics still matter as much as model capability."
+    if "acquires" in lower_title or "acquisition" in lower_title:
+        return "It signals another strategic move in the fast-shifting AI platform landscape."
+    return "It stood out in today's AI scan as a development builders may want to keep on their radar."
+
+
 def build_prompt(news_items: list[dict[str, Any]], platform: str, style_guide: str) -> str:
     """Build a platform-specific prompt for Claude."""
     prompt_items = select_focus_items(news_items, 3 if platform == "x" else len(news_items))
@@ -201,9 +225,7 @@ def ensure_source_links(content: str, news_items: list[dict[str, Any]], platform
             f"- {item['title']}: {item['url']}" for item in missing_items
         )
     elif platform == "linkedin":
-        suffix = "\n\nOther quick reads: " + "; ".join(
-            f"{item['title']} ({item['url']})" for item in missing_items
-        )
+        return content
     else:
         suffix = ""
     return f"{content.rstrip()}{suffix}"
@@ -223,7 +245,7 @@ def build_x_post(item: dict[str, Any], intro: str = "") -> str:
     """Create a compact X post for one news item with a single inline link."""
     url = item["url"]
     prefix = f"{intro} " if intro else ""
-    body = f"{prefix}{item['title']}. {item['summary']}"
+    body = f"{prefix}{infer_item_angle(item)}"
     body = collapse_text(strip_urls(body))
     max_body_length = max(40, 280 - len(url) - 1)
     body = truncate_text(body, max_body_length)
@@ -262,18 +284,18 @@ def build_linkedin_fallback(news_items: list[dict[str, Any]]) -> str:
 
     paragraphs = [
         (
-            f"One development worth watching: {focus[0]['title']} ({focus[0]['url']}). "
-            f"{focus[0]['summary']} This is the clearest signal in today's batch for builders tracking practical AI deployment."
+            f"One development worth watching: {naturalize_title(focus[0]['title'])} ({focus[0]['url']}). "
+            f"{infer_item_angle(focus[0])} This is the clearest signal in today's batch for builders tracking practical AI deployment."
         )
     ]
     if len(focus) > 1:
         paragraphs.append(
-            f"Right behind it, {focus[1]['title']} ({focus[1]['url']}) shows how fast the ecosystem is shifting. "
-            f"{focus[1]['summary']}"
+            f"Right behind it, {naturalize_title(focus[1]['title'])} ({focus[1]['url']}) shows how fast the ecosystem is shifting. "
+            f"{infer_item_angle(focus[1])}"
         )
     if remainder:
-        quick_reads = "; ".join(f"{item['title']} ({item['url']})" for item in remainder[:3])
-        paragraphs.append(f"Other developments moved the story forward too: {quick_reads}.")
+        quick_reads = "; ".join(f"{naturalize_title(item['title'])} ({item['url']})" for item in remainder[:2])
+        paragraphs.append(f"Two more items worth a quick look: {quick_reads}.")
     return "\n\n".join(paragraphs) + "\n\n#AI #LLMs #OpenSource #AIBuilders"
 
 
@@ -294,8 +316,8 @@ def build_blog_fallback(news_items: list[dict[str, Any]]) -> str:
     for item in focus:
         lines.extend(
             [
-                f"## {item['title']}",
-                f"{item['summary']} Source: {item['url']}",
+                f"## {naturalize_title(item['title'])}",
+                f"{infer_item_angle(item)} Source: {item['url']}",
                 "",
             ]
         )
