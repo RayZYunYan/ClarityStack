@@ -29,9 +29,9 @@ def load_style_guide(style_guide_path: str) -> str:
     return textwrap.dedent(
         """
         Voice:
-        - Clear, informed, and practical.
-        - Helpful to builders, engineers, and technically curious readers.
-        - Calm confidence over hype.
+        - Write like a developer building AI systems, not a journalist.
+        - Use first person freely and give concrete technical judgments.
+        - Sound like a senior engineer talking to peers, not a press release.
         """
     ).strip()
 
@@ -49,7 +49,7 @@ def build_prompt(content: str, platform: str, style_guide: str) -> str:
         "linkedin": textwrap.dedent(
             """
             Polish this LinkedIn post.
-            - Professional but conversational tone
+            - Conversational builder tone, still polished enough for LinkedIn
             - Use 1-2 emoji max, naturally placed
             - Keep under 3000 characters
             - Keep the opening hook focused on the most important 1-2 news items
@@ -60,10 +60,12 @@ def build_prompt(content: str, platform: str, style_guide: str) -> str:
             """
             Polish this Markdown blog post.
             - Preserve Markdown formatting and frontmatter exactly
-            - Improve transitions between sections
+            - Keep the writing in first person with clear technical judgment
+            - Improve transitions between sections without flattening the voice
             - Make code references and technical terms precise
             - Keep links inline in relevant paragraphs
             - End with a clean References section at the bottom
+            - Format all references as Markdown links, never raw URLs
             """
         ).strip(),
         "x": textwrap.dedent(
@@ -82,7 +84,18 @@ def build_prompt(content: str, platform: str, style_guide: str) -> str:
 
     return textwrap.dedent(
         f"""
-        You are polishing draft copy for ClarityStack.
+        You are ghostwriting a tech blog post for a developer who builds AI systems.
+
+        Rules:
+        1. Write in first person. Use "I" freely.
+        2. For each topic, after explaining what it is, add a personal take that includes a specific technical judgment. Prefer lines like "I'd use this for X but not Y because Z."
+        3. Never use hedge phrases like "it remains to be seen", "time will tell", "teams should consider", "the practical stance is", or "the broader pattern". Replace them with concrete opinions.
+        4. Reference the author's own tech stack when relevant: local inference on a Mac mini, NemoClaw sandbox, and multi-model pipelines with Gemini + Claude.
+        5. Tone: like a senior engineer talking to peers at lunch, not a press release.
+        6. If a topic is boring or overhyped, say so. Not every item needs praise.
+        7. End each topic section with either a concrete next step or a clear dismissal.
+        8. The References section at the bottom must use clickable Markdown links, not raw URLs.
+        9. Format all references as Markdown links. Never output raw URLs.
 
         Style guide:
         {style_guide}
@@ -112,7 +125,7 @@ def restore_missing_urls(original: str, polished: str, platform: str) -> str:
         return polished
 
     if platform == "blog":
-        suffix = "\n\n## References\n" + "\n".join(f"- {url}" for url in missing_urls)
+        suffix = "\n\n## References\n" + "\n".join(f"- [Source]({url})" for url in missing_urls)
         return polished.rstrip() + suffix
 
     if platform == "linkedin":
@@ -222,5 +235,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
 

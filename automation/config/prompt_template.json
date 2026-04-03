@@ -22,6 +22,11 @@
       "max_length": 300
     },
     {
+      "key": "relevance_to_builders",
+      "instruction": "Why a developer building AI systems should care about this, in one sentence. Be specific about stack, workflow, infra, cost, latency, evals, or product impact.",
+      "max_length": 220
+    },
+    {
       "key": "application",
       "instruction": "Where could this be applied? Name specific scenarios, industries, or use cases where this matters.",
       "max_length": 250

@@ -168,6 +168,20 @@ def suggest_application(item: dict[str, Any]) -> str:
     return "It could shape roadmap decisions for product teams, infrastructure engineers, and technical leaders evaluating where to invest next."
 
 
+def suggest_relevance_to_builders(item: dict[str, Any]) -> str:
+    """Create a builder-centric relevance sentence for fallback JSON."""
+    title = collapse_text(item.get("title", "")).lower()
+    if "local" in title or "server" in title or "gpu" in title or "npu" in title:
+        return "If you are building AI systems, this matters because it could shift local inference cost, privacy, and deployment control in your stack."
+    if "agent" in title:
+        return "If you are building agents, this matters because better tool use and task completion can change what workflows are realistic to automate."
+    if "compute" in title or "cost" in title or "video" in title:
+        return "If you ship AI features, this matters because infrastructure cost can kill product margins long before model quality does."
+    if "acquires" in title or "acquisition" in title:
+        return "If your stack depends on a fast-moving vendor, this matters because product direction and integration surfaces can change quickly after acquisitions."
+    return "If you are building AI products, this matters because it may affect model choice, system design, or what is worth prototyping next."
+
+
 def suggest_counterpoint(item: dict[str, Any]) -> str:
     """Create a skeptical or limiting view for fallback JSON."""
     title = collapse_text(item.get("title", "")).lower()
@@ -200,6 +214,7 @@ def build_minimal_structured_item(item: dict[str, Any], template: dict[str, Any]
         "summary": clean_source_summary(item),
         "context": suggest_context(item),
         "insight": infer_item_angle(item),
+        "relevance_to_builders": suggest_relevance_to_builders(item),
         "application": suggest_application(item),
         "counterpoint": suggest_counterpoint(item),
         "action": suggest_action(item),
@@ -267,8 +282,11 @@ def build_extraction_prompt(item: dict[str, Any], template: dict[str, Any]) -> s
 
     return textwrap.dedent(
         f"""
-        You are an AI industry analyst. For the following news item, fill in EVERY field of this JSON structure.
+        You are extracting builder-relevant structured notes for a developer who builds AI systems.
+        For the following news item, fill in EVERY field of this JSON structure.
         Respond with valid JSON only, no markdown fences, no preamble.
+        Be concrete and useful for someone shipping AI products, agents, evals, or inference infrastructure.
+        The field relevance_to_builders is required and should say why a hands-on builder should care.
 
         News item:
         Title: {item.get("title", "")}
@@ -385,9 +403,13 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
             - Preserve Markdown output
             - Include frontmatter with title, date, and tags
             - Give each item its own section
-            - In each section, flow naturally through summary, context, insight, and application
+            - Write in first person and sound like a builder talking to peers
+            - In each section, move through What, So What, and My Take naturally
+            - Use relevance_to_builders to sharpen the So What layer
+            - End each section with a concrete next step or a clear dismissal
             - Weave counterpoints in naturally instead of labeling them mechanically
             - Keep source links inline in paragraphs and end with a clean References section
+            - Format all references as Markdown links, never raw URLs
             """
         ).strip(),
         "x": textwrap.dedent(
@@ -418,6 +440,10 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
         {items_json}
 
         Use the structured data as raw material. Write naturally.
+        Write like a developer who builds AI systems, not a journalist.
+        Use first person freely.
+        Give a specific technical judgment for each topic.
+        If something is overhyped, narrow, or not useful, say so directly.
         Do NOT output JSON or field labels.
         Preserve all original source URLs exactly as they appear in the structured data.
         Do not invent facts.
@@ -478,7 +504,10 @@ def ensure_inline_links(content: str, structured_items: list[dict[str, str]], pl
 
     if platform == "blog":
         reference_lines = ["", "## References"]
-        reference_lines.extend(f"- {item['hook']}: {item['source_url']}" for item in missing)
+        reference_lines.extend(
+            f"- [{item['hook']}]({item['source_url']})"
+            for item in missing
+        )
         return content.rstrip() + "\n" + "\n".join(reference_lines)
 
     return content
@@ -590,7 +619,7 @@ def build_linkedin_fallback(structured_items: list[dict[str, str]]) -> str:
             f"{item['hook']} {item['source_url']}" for item in rest[:2]
         )
         paragraphs.append(f"Two shorter reads on the radar: {brief}")
-    paragraphs.append("If you are building in AI right now, the practical move is to test what changes deployment economics or workflow reliability before the hype cycle moves on. #AI #LLMs #OpenSource #AIBuilders")
+    paragraphs.append("If I were prioritizing this stack today, I would test the pieces that change deployment economics or workflow reliability first and ignore the rest. #AI #LLMs #OpenSource #AIBuilders")
     return "\n\n".join(paragraphs)
 
 
@@ -604,7 +633,7 @@ def build_blog_fallback(structured_items: list[dict[str, str]]) -> str:
         "tags: [AI, roundup, automation]",
         "---",
         "",
-        "This roundup pulls together the AI developments most likely to matter for builders, technical teams, and infrastructure-minded readers.",
+        "I care less about AI headlines than about what changes how I would actually build. This roundup filters for the developments that seem most relevant to real systems work.",
         "",
     ]
     for item in structured_items[:5]:
@@ -612,20 +641,20 @@ def build_blog_fallback(structured_items: list[dict[str, str]]) -> str:
             [
                 f"## {item['hook']}",
                 "",
-                f"{item['summary']} {item['source_url']}",
+                f"{item['summary']} [Source]({item['source_url']})",
                 "",
-                f"In context, {item['context']}",
+                f"{item['relevance_to_builders']} {item['context']}",
                 "",
-                f"Why it matters: {item['insight']} {item['application']}",
+                f"My take: {item['insight']} {item['application']}",
                 "",
-                f"One caution: {item['counterpoint']}",
+                f"The catch: {item['counterpoint']}",
                 "",
-                f"What to do now: {item['action']}",
+                f"What I'd do: {item['action']}",
                 "",
             ]
         )
     lines.append("## References")
-    lines.extend(f"- {item['hook']}: {item['source_url']}" for item in structured_items[:5])
+    lines.extend(f"- [{item['hook']}]({item['source_url']})" for item in structured_items[:5])
     return "\n".join(lines).strip()
 
 
@@ -754,8 +783,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-
 
 
 
