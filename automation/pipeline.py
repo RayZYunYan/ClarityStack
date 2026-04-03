@@ -13,29 +13,26 @@ from typing import Any
 
 from dotenv import load_dotenv
 
-import content_generator
-import fetcher
-import notify_dispatch
-import polish_with_claude
-import publish_github
-import publish_linkedin
-import publish_x
-from privacy_scanner import scan
+try:
+    from . import content_generator, fetcher, notify_dispatch, publish_github, publish_linkedin, publish_x
+    from .paths import ENV_PATH, LOG_DIR
+    from .privacy_scanner import scan
+except ImportError:
+    import content_generator
+    import fetcher
+    import notify_dispatch
+    import publish_github
+    import publish_linkedin
+    import publish_x
+    from paths import ENV_PATH, LOG_DIR
+    from privacy_scanner import scan
 
 LOGGER = logging.getLogger(__name__)
 
 
-def env_flag(name: str, default: bool) -> bool:
-    """Read a boolean environment flag."""
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def setup_logging() -> pathlib.Path:
     """Configure console and file logging for the current run."""
-    log_dir = pathlib.Path("logs")
+    log_dir = LOG_DIR
     log_dir.mkdir(exist_ok=True)
     log_path = log_dir / f"pipeline_{dt.date.today().isoformat()}.log"
 
@@ -65,17 +62,6 @@ def request_cli_approval() -> bool:
         raise RuntimeError("Approval is required, but no interactive terminal is available.")
     reply = input("Publish all? [y/N]: ").strip().lower()
     return reply in {"y", "yes"}
-
-
-def polish_generated_content(content_map: dict[str, str], enabled: bool) -> dict[str, str]:
-    """Optionally polish generated content through Claude Code CLI."""
-    if not enabled:
-        return content_map
-
-    polished_map: dict[str, str] = {}
-    for platform, content in content_map.items():
-        polished_map[platform] = polish_with_claude.polish(content, platform)
-    return polished_map
 
 
 def redact_generated_content(content_map: dict[str, str]) -> tuple[dict[str, str], dict[str, list[str]]]:
@@ -128,13 +114,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     """Run the full automation pipeline."""
-    load_dotenv()
+    load_dotenv(ENV_PATH)
     log_path = setup_logging()
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     args = build_parser().parse_args()
     approval_mode = os.getenv("APPROVAL_MODE", "cli").strip().lower()
-    claude_polish_enabled = env_flag("CLAUDE_POLISH_ENABLED", True)
 
     if args.publish_approved:
         LOGGER.info("Pipeline started in publish-approved mode")
@@ -161,14 +146,16 @@ def main() -> int:
     if source_findings:
         LOGGER.warning("Fetched payload triggered %d privacy redaction(s)", len(source_findings))
 
+    LOGGER.info("Extracting structured JSON for fetched items")
+    structured_items = content_generator.structure_news_items(news_items, limit=5)
+    LOGGER.info("Structured extraction completed for %d item(s)", len(structured_items))
+
     content_map = {
-        "linkedin": content_generator.generate(news_items, "linkedin"),
-        "blog": content_generator.generate(news_items, "blog"),
-        "x": content_generator.generate(news_items, "x"),
+        "linkedin": content_generator.generate(news_items, "linkedin", structured_items=structured_items),
+        "blog": content_generator.generate(news_items, "blog", structured_items=structured_items),
+        "x": content_generator.generate(news_items, "x", structured_items=structured_items),
     }
-    LOGGER.info("Generated content for %d platform(s)", len(content_map))
-    content_map = polish_generated_content(content_map, enabled=claude_polish_enabled)
-    LOGGER.info("Claude polish step completed")
+    LOGGER.info("Structured assembly completed for %d platform(s)", len(content_map))
 
     cleaned_map, generated_findings = redact_generated_content(content_map)
     LOGGER.info("Second-pass privacy scan completed")

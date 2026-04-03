@@ -15,12 +15,17 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+try:
+    from .paths import ENV_PATH, OUTBOX_DIR
+except ImportError:
+    from paths import ENV_PATH, OUTBOX_DIR
+
 LOGGER = logging.getLogger(__name__)
 
 
 def write_manual_draft(content: str) -> pathlib.Path:
     """Persist a manual LinkedIn draft for copy-paste publishing."""
-    outbox_dir = pathlib.Path("outbox") / "linkedin"
+    outbox_dir = OUTBOX_DIR / "linkedin"
     outbox_dir.mkdir(parents=True, exist_ok=True)
     filename = dt.datetime.now().strftime("%Y%m%d_%H%M%S_linkedin.txt")
     path = outbox_dir / filename
@@ -126,7 +131,7 @@ def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:
 
 def load_credentials() -> dict[str, str]:
     """Load LinkedIn credentials from the environment."""
-    load_dotenv()
+    load_dotenv(ENV_PATH)
     publish_mode = os.getenv("LINKEDIN_PUBLISH_MODE", "manual").lower()
     access_token = os.getenv("LINKEDIN_ACCESS_TOKEN")
     author_urn = os.getenv("LINKEDIN_PERSON_URN")
@@ -171,3 +176,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

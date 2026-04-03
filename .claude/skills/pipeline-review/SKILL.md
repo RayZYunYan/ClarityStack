@@ -6,7 +6,7 @@ When a new file appears at `outbox/review/pending.md`:
 2. Wait for the user's response through Claude Dispatch / Cowork.
 3. If the user replies `OK` or `approve`:
    - copy the files from `outbox/review/pending/` into `outbox/review/approved/`
-   - run `python pipeline.py --publish-approved`
+   - run `python automation/pipeline.py --publish-approved`
 4. If the user replies with edit instructions:
    - update the relevant files inside `outbox/review/pending/`
    - regenerate `outbox/review/pending.md` so the user can review the latest version

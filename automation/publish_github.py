@@ -16,6 +16,11 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+try:
+    from .paths import ENV_PATH
+except ImportError:
+    from paths import ENV_PATH
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -49,7 +54,7 @@ def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:
     repository = credentials["repository"]
     token = credentials["token"]
     branch = credentials.get("branch", "main")
-    posts_path = credentials.get("posts_path", "_posts")
+    posts_path = credentials.get("posts_path", "site/_posts")
     filename = credentials.get("filename") or build_filename(content)
     path = f"{posts_path}/{filename}"
 
@@ -79,13 +84,13 @@ def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:
 
 def load_credentials() -> dict[str, str]:
     """Load GitHub publish credentials from the environment."""
-    load_dotenv()
+    load_dotenv(ENV_PATH)
     token = os.getenv("GITHUB_TOKEN")
     repository = os.getenv("GITHUB_REPOSITORY", "RayZYunYan/ClarityStack")
     branch = os.getenv("GITHUB_BRANCH", "main")
     if not token:
         raise RuntimeError("GITHUB_TOKEN is not set.")
-    return {"token": token, "repository": repository, "branch": branch}
+    return {"token": token, "repository": repository, "branch": branch, "posts_path": "site/_posts"}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -121,3 +126,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

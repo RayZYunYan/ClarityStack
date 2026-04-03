@@ -15,6 +15,11 @@ from typing import Any
 import requests
 from dotenv import load_dotenv
 
+try:
+    from .paths import ENV_PATH, OUTBOX_DIR
+except ImportError:
+    from paths import ENV_PATH, OUTBOX_DIR
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -48,7 +53,7 @@ def check_credit_balance(credentials: dict[str, Any]) -> None:
 
 def write_manual_thread(chunks: list[str]) -> pathlib.Path:
     """Persist a manual X thread draft for copy-paste publishing."""
-    outbox_dir = pathlib.Path("outbox") / "x"
+    outbox_dir = OUTBOX_DIR / "x"
     outbox_dir.mkdir(parents=True, exist_ok=True)
     filename = dt.datetime.now().strftime("%Y%m%d_%H%M%S_x_thread.txt")
     path = outbox_dir / filename
@@ -131,7 +136,7 @@ def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:
 
 def load_credentials() -> dict[str, str]:
     """Load X credentials from the environment."""
-    load_dotenv()
+    load_dotenv(ENV_PATH)
     publish_mode = os.getenv("X_PUBLISH_MODE", "manual").lower()
     access_token = os.getenv("X_ACCESS_TOKEN")
     if publish_mode == "api" and not access_token:
@@ -173,3 +178,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

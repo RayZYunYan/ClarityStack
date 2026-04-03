@@ -1,68 +1,89 @@
-# 🛡️ 基于 NVIDIA NemoClaw 的高安全 AI 自动化矩阵 (v2.1)
-**项目目标**：利用企业级沙盒技术构建“零泄露”风险的 AI 资讯自动化系统。
-**技术核心**：NemoClaw Sandbox (内核级隔离) + OpenShell Runtime (安全环境) + HITL (人机回路)。
+# ClarityStack
 
----
+ClarityStack is an AI-content workflow that fetches fresh AI papers, repos, and news, runs privacy checks, extracts structured JSON from each item, assembles platform-specific prose, and then publishes to GitHub or writes manual drafts for LinkedIn and X.
 
-## 一、 核心架构图 (System Architecture)
+## Repo layout
 
-本方案通过 NVIDIA NemoClaw 在本地 Mac mini 上建立一个“安全隔离区”，确保所有 Agent 操作都在受控容器内执行。
+```text
+.
+├── automation/        # Python pipeline, publishers, structured prompts, config files
+├── site/              # Jekyll / Cloudflare Pages / GitHub Pages blog source
+├── docs/              # Project notes and migration docs
+├── .claude/           # Claude Cowork / Dispatch skill definitions
+├── .github/           # GitHub Actions workflows
+├── logs/              # Pipeline run logs
+├── outbox/            # Manual publishing and review bundles
+├── .env               # Runtime secrets (local only)
+└── .env.example       # Safe template for commits
+```
 
-| 组件 | 引擎/工具 | 安全职能 | 成本 (Monthly) |
-| :--- | :--- | :--- | :--- |
-| **感知与抓取** | Gemini 3 Flash API | 全网资讯采集、长文本初筛，利用 2M 上下文。 | **$0** (Free Tier) |
-| **安全沙盒** | **NVIDIA NemoClaw** | **核心容器**：在 OpenShell 环境中运行，强制 Landlock 文件隔离。 | **$0** (NVIDIA 开源) |
-| **文案生成** | Claude 4.6 (Pro) | 结合风格文件润色。数据发送前经过本地脱敏。 | **$0** (已购 Pro) |
-| **中控与审批** | Claude Dispatch | 手机端指令确认、文案微调、下达 Commit 指令。 | **受控** (单次对话) |
-| **发布防线** | GitHub Environments | CI/CD 自动部署流程中的最后一道人工确认闸门。 | **$0** (GitHub 免费) |
+## Runtime commands
 
----
+Install Python deps:
 
-## 二、 隐私泄露排除机制 (Privacy Guardrails)
-
-### 1. 本地脱敏规则 (`redaction_rules.json`)
-在数据离开本地环境发往云端 LLM 前，NemoClaw 会强制执行正则表达式匹配：
-- **API 密钥**：自动遮蔽 `sk-`, `ghp_` 等开头的字符串。
-- **身份信息**：替换 `Rui Zhang`, `USC`, `University of Southern California` 为占位符。
-- **本地路径**：将 `/Users/ruizhang/...` 统一重写为虚拟路径。
-
-### 2. 内核级沙盒 (Sandboxed Execution)
-- **Landlock 隔离**：Agent 只能读写被授权的 `/sandbox` 目录，无法触碰你的作业、照片或系统配置。
-- **网络白名单**：仅允许访问指定的抓取目标（如 ArXiv, GitHub），禁止向未知地址发送数据。
-
----
-
-## 三、 全链路操作流程 (End-to-End Workflow)
-
-1. **[自动]** NemoClaw 调用 Gemini 抓取过去 24h 的 AI 论文并提炼摘要。
-2. **[安全]** 本地隐私路由器扫描摘要，确保没有抓取到敏感的内网信息。
-3. **[润色]** 干净的数据传给 Claude，Claude 生成适配 LinkedIn 的专业文案。
-4. **[确认]** Claude 通过 Dispatch 发送到你手机。你回复 `OK` 后，NemoClaw 执行 `git push`。
-5. **[终审]** GitHub 弹出部署申请，你在 GitHub App 点击 `Approve`，网站正式更新。
-
----
-
-## 四、 简历描述参考 (Resume Bullet Points)
-
-> **"Implemented a secure AI content pipeline using NVIDIA NemoClaw to automate tech-blogging with zero-trust architecture."**
-> - **Security**: Leveraged **OpenShell Runtime** and **Landlock kernel isolation** to create a sandboxed environment for autonomous agents.
-> - **Optimization**: Integrated **Gemini 3 Flash** and **Claude 4.6** in a multi-model orchestration, reducing inference costs while maintaining high-fidelity output.
-> - **Governance**: Established a **Human-in-the-loop (HITL)** approval workflow via GitHub Environments and Claude Dispatch.
-
----
-
-## 五、 附录：NemoClaw 快速配置参考
 ```bash
-# 安装 NemoClaw 插件
-curl -fsSL [https://www.nvidia.com/nemoclaw.sh](https://www.nvidia.com/nemoclaw.sh) | bash
+pip install -r automation/requirements.txt
+```
 
-# 初始化安全沙盒
-nemoclaw onboard
+Run the pipeline locally:
 
-# 配置隐私脱敏黑名单
-cat > redaction_rules.json <<EOF
-{
-  "patterns": ["sk-.*", "Rui Zhang", "USC", "/Users/.*"],
-  "placeholder": "[SECURE_DATA]"
-}
-EOF
+```bash
+python automation/pipeline.py --dry-run --manual --limit 3
+```
+
+Publish an already approved Dispatch bundle:
+
+```bash
+python automation/pipeline.py --publish-approved
+```
+
+Test the structured extraction + assembly flow:
+
+```bash
+python automation/content_generator.py --test-structured
+```
+
+## Generation flow
+
+1. Gemini extracts structured JSON for each news item using [automation/config/prompt_template.json](C:/个人小项目/ClarityStack/automation/config/prompt_template.json).
+2. Claude Code CLI assembles that structured data into LinkedIn, blog, and X prose when available.
+3. If Claude is unavailable, Gemini assembles from the same structured JSON.
+4. If Gemini rate-limits or returns malformed JSON, deterministic fallbacks fill the missing structure with readable summaries.
+
+## Site / deployment
+
+Serve the blog locally from the site root:
+
+```bash
+cd site
+bundle install
+bundle exec jekyll serve
+```
+
+Current deployment setup:
+
+- Primary config for Cloudflare Pages: [site/_config.yml](C:/个人小项目/ClarityStack/site/_config.yml)
+- GitHub Pages mirror override: [site/_config.github-pages.yml](C:/个人小项目/ClarityStack/site/_config.github-pages.yml)
+- Cloudflare security headers: [site/_headers](C:/个人小项目/ClarityStack/site/_headers)
+- Migration guide: [docs/cloudflare-pages.md](C:/个人小项目/ClarityStack/docs/cloudflare-pages.md)
+
+GitHub Actions still builds the GitHub Pages mirror from `site/`, while Cloudflare Pages can connect directly to the same repository.
+
+## Config locations
+
+- Privacy rules: `automation/config/redaction_rules.json`
+- Style guide: `automation/config/style_guide.md`
+- Prompt template: `automation/config/prompt_template.json`
+- Review bundle: `outbox/review/`
+- Manual LinkedIn drafts: `outbox/linkedin/`
+- Manual X drafts: `outbox/x/`
+- Blog posts committed by API: `site/_posts/`
+
+## Publishing behavior
+
+- GitHub blog: real API publish to `site/_posts/`
+- LinkedIn: manual draft mode by default
+- X: manual draft mode by default, zero-cost workflow
+- Claude assembly: controlled by `CLAUDE_POLISH_ENABLED`
+- Approval flow: `APPROVAL_MODE=cli` or `APPROVAL_MODE=dispatch`
+- Structured prompt template path: `PROMPT_TEMPLATE_PATH`

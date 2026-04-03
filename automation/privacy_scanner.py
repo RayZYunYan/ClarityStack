@@ -10,18 +10,23 @@ import re
 import sys
 from typing import Any
 
+try:
+    from .paths import REDACTION_RULES_PATH
+except ImportError:
+    from paths import REDACTION_RULES_PATH
+
 LOGGER = logging.getLogger(__name__)
 
 
-def load_rules(rules_path: str) -> dict[str, Any]:
+def load_rules(rules_path: str | pathlib.Path) -> dict[str, Any]:
     """Load redaction rules from JSON."""
-    with open(rules_path, "r", encoding="utf-8") as handle:
+    with open(pathlib.Path(rules_path), "r", encoding="utf-8") as handle:
         return json.load(handle)
 
 
-def scan(text: str, rules_path: str = "redaction_rules.json") -> tuple[str, list[str]]:
+def scan(text: str, rules_path: str | pathlib.Path | None = None) -> tuple[str, list[str]]:
     """Returns (clean_text, list_of_findings)."""
-    rules = load_rules(rules_path)
+    rules = load_rules(rules_path or REDACTION_RULES_PATH)
     placeholder = rules.get("placeholder", "[REDACTED]")
     findings: list[str] = []
     cleaned = text
@@ -49,7 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--file", help="Path to the input text file.")
     parser.add_argument("--text", help="Inline text to scan.")
-    parser.add_argument("--rules-path", default="redaction_rules.json", help="Path to the rules JSON file.")
+    parser.add_argument("--rules-path", default=str(REDACTION_RULES_PATH), help="Path to the rules JSON file.")
     return parser
 
 

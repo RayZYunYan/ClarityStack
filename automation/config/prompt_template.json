@@ -1,0 +1,44 @@
+{
+  "schema_version": "1.0",
+  "fields": [
+    {
+      "key": "hook",
+      "instruction": "One sentence - what is the single most notable thing about this news? Write it as if grabbing a busy engineer's attention.",
+      "max_length": 150
+    },
+    {
+      "key": "summary",
+      "instruction": "What does this article, paper, or release actually say? 2-3 factual sentences. No opinions here, just the core content.",
+      "max_length": 400
+    },
+    {
+      "key": "context",
+      "instruction": "How does this relate to recent trends or other events in AI? Connect it to the bigger picture. Reference specific companies, papers, or releases if possible.",
+      "max_length": 300
+    },
+    {
+      "key": "insight",
+      "instruction": "Your analytical take - what does this mean for the industry? This is the opinion or judgment layer.",
+      "max_length": 300
+    },
+    {
+      "key": "application",
+      "instruction": "Where could this be applied? Name specific scenarios, industries, or use cases where this matters.",
+      "max_length": 250
+    },
+    {
+      "key": "counterpoint",
+      "instruction": "What's the skeptical view? What could go wrong, what's overhyped, or what limitation should people be aware of?",
+      "max_length": 250
+    },
+    {
+      "key": "action",
+      "instruction": "What should a technical practitioner do with this information right now? Be concrete: try X, watch Y, avoid Z.",
+      "max_length": 200
+    },
+    {
+      "key": "source_url",
+      "instruction": "The original source URL. Copy exactly, do not modify."
+    }
+  ]
+}

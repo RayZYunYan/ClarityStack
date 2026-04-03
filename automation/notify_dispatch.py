@@ -10,6 +10,11 @@ import shutil
 import sys
 from typing import Any
 
+try:
+    from .paths import REVIEW_DIR
+except ImportError:
+    from paths import REVIEW_DIR
+
 LOGGER = logging.getLogger(__name__)
 PLATFORM_FILES = {
     "linkedin": "linkedin.txt",
@@ -18,7 +23,7 @@ PLATFORM_FILES = {
 }
 
 
-def ensure_review_dirs(output_dir: str = "outbox/review") -> tuple[pathlib.Path, pathlib.Path]:
+def ensure_review_dirs(output_dir: str | pathlib.Path = REVIEW_DIR) -> tuple[pathlib.Path, pathlib.Path]:
     """Ensure the pending and approved review directories exist."""
     base = pathlib.Path(output_dir)
     pending_dir = base / "pending"
@@ -65,7 +70,7 @@ def render_pending_markdown(content_preview: dict[str, str]) -> str:
     return "\n".join(sections).strip() + "\n"
 
 
-def request_approval(content_preview: dict[str, str], output_dir: str = "outbox/review") -> str:
+def request_approval(content_preview: dict[str, str], output_dir: str | pathlib.Path = REVIEW_DIR) -> str:
     """Write a Dispatch-friendly pending review bundle and return pending.md."""
     pending_dir, _ = ensure_review_dirs(output_dir)
     write_platform_files(content_preview, pending_dir)
@@ -75,7 +80,7 @@ def request_approval(content_preview: dict[str, str], output_dir: str = "outbox/
     return str(pending_path)
 
 
-def load_review_bundle(state: str = "approved", output_dir: str = "outbox/review") -> dict[str, str]:
+def load_review_bundle(state: str = "approved", output_dir: str | pathlib.Path = REVIEW_DIR) -> dict[str, str]:
     """Load content from the pending or approved review bundle."""
     base_dir = pathlib.Path(output_dir) / state
     if not base_dir.exists():
@@ -90,7 +95,7 @@ def load_review_bundle(state: str = "approved", output_dir: str = "outbox/review
     return content_map
 
 
-def promote_pending_to_approved(output_dir: str = "outbox/review") -> dict[str, str]:
+def promote_pending_to_approved(output_dir: str | pathlib.Path = REVIEW_DIR) -> dict[str, str]:
     """Utility for local testing: copy pending files into approved."""
     pending_dir, approved_dir = ensure_review_dirs(output_dir)
     for filename in list(PLATFORM_FILES.values()) + ["manifest.json"]:
@@ -100,7 +105,7 @@ def promote_pending_to_approved(output_dir: str = "outbox/review") -> dict[str, 
     return load_review_bundle("approved", output_dir=output_dir)
 
 
-def cleanup_review_bundle(output_dir: str = "outbox/review") -> None:
+def cleanup_review_bundle(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
     """Remove review artifacts after publishing."""
     base = pathlib.Path(output_dir)
     pending_md = base / "pending.md"
@@ -135,3 +140,4 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+

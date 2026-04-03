@@ -127,9 +127,9 @@ nemoclaw ai-pipeline status
 
 **Goal:** Regex-based redaction that strips sensitive data before sending to any external API.
 
-**File:** `privacy_scanner.py`
+**File:** `automation/privacy_scanner.py`
 
-**Redaction rules (load from `redaction_rules.json`):**
+**Redaction rules (load from `automation/config/redaction_rules.json`):**
 ```json
 {
   "patterns": [
@@ -145,7 +145,7 @@ nemoclaw ai-pipeline status
 
 **Interface:**
 ```python
-def scan(text: str, rules_path: str = "redaction_rules.json") -> tuple[str, list[str]]:
+def scan(text: str, rules_path: str = "automation/config/redaction_rules.json") -> tuple[str, list[str]]:
     """Returns (clean_text, list_of_findings)"""
 ```
 
@@ -154,7 +154,7 @@ def scan(text: str, rules_path: str = "redaction_rules.json") -> tuple[str, list
 - Return both cleaned text and a report of what was found
 - If any redaction fires, log a warning
 
-**Deliverable:** `privacy_scanner.py` with `scan()` function.
+**Deliverable:** `automation/privacy_scanner.py` with `scan()` function.
 
 ---
 
@@ -162,7 +162,7 @@ def scan(text: str, rules_path: str = "redaction_rules.json") -> tuple[str, list
 
 **Goal:** Takes cleaned news summaries, generates platform-specific posts using Claude API.
 
-**File:** `content_generator.py`
+**File:** `automation/content_generator.py`
 
 **Platforms and format:**
 
@@ -191,17 +191,17 @@ def scan(text: str, rules_path: str = "redaction_rules.json") -> tuple[str, list
 def generate(
     news_items: list[dict],
     platform: str,  # "linkedin" | "blog" | "x"
-    style_file: str = "style_guide.md"
+    style_file: str = "automation/config/style_guide.md"
 ) -> str:
 ```
 
 **Requirements:**
 - Use Claude API (api.anthropic.com) with model `claude-sonnet-4-6`
-- Load style guide from `style_guide.md` for tone/voice consistency
+- Load style guide from `automation/config/style_guide.md` for tone/voice consistency
 - Always include original source URLs in output
 - Privacy scanner must run on input BEFORE calling Claude
 
-**Deliverable:** `content_generator.py` + `style_guide.md` template.
+**Deliverable:** `automation/content_generator.py` + `automation/config/style_guide.md` template.
 
 ---
 
@@ -209,18 +209,18 @@ def generate(
 
 **Goal:** Separate modules to publish content to each platform.
 
-### 5a. GitHub blog publisher (`publish_github.py`)
-- Create markdown file in `_posts/` directory format (`YYYY-MM-DD-title.md`)
+### 5a. GitHub blog publisher (`automation/publish_github.py`)
+- Create markdown file in `site/_posts/` directory format (`YYYY-MM-DD-title.md`)
 - Commit and push to the `ClarityStack` repo (https://github.com/RayZYunYan/ClarityStack.git)
 - This triggers GitHub Actions → GitHub Pages deployment
 - Use GitHub API (not git CLI) so it works from within the sandbox
 
-### 5b. LinkedIn publisher (`publish_linkedin.py`)
+### 5b. LinkedIn publisher (`automation/publish_linkedin.py`)
 - Use LinkedIn API v2 to create a share/post
 - Include text + article URL
 - Handle OAuth token refresh
 
-### 5c. X publisher (`publish_x.py`)
+### 5c. X publisher (`automation/publish_x.py`)
 - Use X API v2 to create tweets (POST /2/tweets)
 - If content is a thread, post sequentially with `reply_to` chaining
 - X API is now pay-per-use (credits). Posting costs are minimal (~$0.01/post)
@@ -246,7 +246,7 @@ def publish(content: str, credentials: dict) -> dict:
 
 **Goal:** Main pipeline script that ties everything together with human approval gate.
 
-**File:** `pipeline.py`
+**File:** `automation/pipeline.py`
 
 **Flow:**
 ```
@@ -283,7 +283,7 @@ Option B — If OpenClaw Dispatch/Telegram bridge is configured, send preview th
 - Write to `logs/pipeline_YYYY-MM-DD.log`
 - Record: items fetched, items selected, redactions made, content generated, publish results
 
-**Deliverable:** `pipeline.py` as the single entry point.
+**Deliverable:** `automation/pipeline.py` as the single entry point.
 
 ---
 
@@ -299,7 +299,7 @@ name: Deploy Blog
 on:
   push:
     branches: [main]
-    paths: ['_posts/**']
+    paths: ['site/**']
 
 jobs:
   build:
@@ -324,7 +324,7 @@ jobs:
 **Requirements:**
 - Blog only deploys when you approve in GitHub
 - Use Jekyll (simplest for GitHub Pages) with a clean minimal theme
-- Include basic `_config.yml`, `index.md`, and `_layouts/post.html`
+- Include basic `site/_config.yml`, `site/index.md`, and `site/_layouts/post.html`
 
 **Deliverable:** Complete GitHub Actions workflow + Jekyll site skeleton.
 
@@ -348,30 +348,38 @@ The skill should instruct the OpenClaw agent to:
 
 ## File structure
 
-```
+```text
 ai-pipeline/
-├── SKILL.md                    # OpenClaw skill definition
-├── pipeline.py                 # Main orchestrator
-├── fetcher.py                  # News fetcher
-├── privacy_scanner.py          # Redaction engine
-├── redaction_rules.json        # Redaction patterns
-├── content_generator.py        # Claude-powered content gen
-├── style_guide.md              # Tone/voice reference
-├── publish_github.py           # GitHub blog publisher
-├── publish_linkedin.py         # LinkedIn publisher
-├── publish_x.py                # X/Twitter publisher
-├── .env.example                # Template for secrets
-├── requirements.txt            # Python deps
+├── README.md                   # Project overview
+├── .env.example                # Safe template for secrets
+├── .gitignore                  # Ignore local secrets and build artifacts
+├── automation/
+│   ├── pipeline.py             # Main orchestrator
+│   ├── fetcher.py              # News fetcher
+│   ├── privacy_scanner.py      # Redaction engine
+│   ├── content_generator.py    # Draft generation
+│   ├── publish_github.py       # GitHub blog publisher
+│   ├── publish_linkedin.py     # LinkedIn publisher
+│   ├── publish_x.py            # X/Twitter publisher
+│   ├── notify_dispatch.py      # Dispatch approval helper
+│   ├── polish_with_claude.py   # Claude Code polish step
+│   └── config/
+│       ├── redaction_rules.json
+│       └── style_guide.md
+├── docs/
+│   ├── codex-tasks.md          # Build checklist / implementation notes
+│   └── SKILL.md                # OpenClaw skill definition
 ├── logs/                       # Pipeline logs
-└── ClarityStack/                  # GitHub Pages repo (RayZYunYan/ClarityStack)
+├── outbox/                     # Manual drafts + review bundles
+└── site/                       # GitHub Pages repo contents
     ├── _config.yml
-    ├── index.md
-    ├── _posts/
+    ├── _includes/
     ├── _layouts/
-    │   └── post.html
-    └── .github/
-        └── workflows/
-            └── deploy.yml
+    ├── _posts/
+    ├── assets/
+    ├── Gemfile
+    ├── about.md
+    └── index.md
 ```
 
 ---
@@ -402,3 +410,6 @@ ai-pipeline/
 - Write docstrings and type hints
 - No hardcoded API keys anywhere — always from env vars
 - The privacy scanner MUST run before AND after content generation
+
+
+

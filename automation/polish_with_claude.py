@@ -11,6 +11,11 @@ import subprocess
 import sys
 import textwrap
 
+try:
+    from .paths import STYLE_GUIDE_PATH
+except ImportError:
+    from paths import STYLE_GUIDE_PATH
+
 LOGGER = logging.getLogger(__name__)
 URL_PATTERN = re.compile(r"https?://\S+")
 
@@ -111,9 +116,7 @@ def restore_missing_urls(original: str, polished: str, platform: str) -> str:
         return polished.rstrip() + suffix
 
     if platform == "linkedin":
-        suffix = "\n\nOther quick reads: " + "; ".join(missing_urls)
-        candidate = polished.rstrip() + suffix
-        return candidate if len(candidate) <= 3000 else polished
+        return polished
 
     return polished
 
@@ -143,7 +146,7 @@ def validate_polished_content(original: str, polished: str, platform: str) -> bo
     return True
 
 
-def polish(content: str, platform: str, style_guide_path: str = "style_guide.md") -> str:
+def polish(content: str, platform: str, style_guide_path: str = str(STYLE_GUIDE_PATH)) -> str:
     """Polish content with Claude Code CLI, falling back to the original text."""
     if not content.strip():
         return content
@@ -193,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     """Create the CLI parser for standalone testing."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--platform", choices=["linkedin", "blog", "x"], default="linkedin")
-    parser.add_argument("--style-guide-path", default="style_guide.md")
+    parser.add_argument("--style-guide-path", default=str(STYLE_GUIDE_PATH))
     parser.add_argument("--test", action="store_true", help="Polish a built-in sample payload.")
     return parser
 
@@ -219,3 +222,5 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
