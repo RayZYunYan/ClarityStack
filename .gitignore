@@ -2,6 +2,8 @@
 .venv/
 __pycache__/
 *.pyc
+_site/
+.jekyll-cache/
 site/_site/
 site/.jekyll-cache/
 logs/*.log

@@ -7,6 +7,9 @@ on:
       - master
     paths:
       - "site/**"
+      - "_config.yml"
+      - "_config.github-pages.yml"
+      - "Gemfile"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -29,16 +32,14 @@ jobs:
         with:
           ruby-version: "3.3"
       - name: Install dependencies
-        working-directory: site
         run: |
           bundle config set path vendor/bundle
           bundle install
       - name: Build site for GitHub Pages mirror
-        working-directory: site
-        run: bundle exec jekyll build --config _config.yml,_config.github-pages.yml --source . --destination _site
+        run: bundle exec jekyll build --config _config.yml,_config.github-pages.yml --destination _site
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site/_site
+          path: _site
 
   deploy:
     needs: build

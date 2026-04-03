@@ -1,5 +1,5 @@
 ---
-title: Local LLMs, AI's Price Tag, and Infrastructure Bets: Key Developments for Builders
+title: "Local LLMs, AI's Price Tag, and Infrastructure Bets: Key Developments for Builders"
 date: 2026-04-02
 tags: [AI, LLM, Local AI, Edge AI, Compute Costs, Infrastructure, Open Source, Agents, AMD, OpenAI, Mistral, Qwen]
 ---

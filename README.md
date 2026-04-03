@@ -7,12 +7,14 @@ ClarityStack is an AI-content workflow that fetches fresh AI papers, repos, and 
 ```text
 .
 ├── automation/        # Python pipeline, publishers, structured prompts, config files
-├── site/              # Jekyll / Cloudflare Pages / GitHub Pages blog source
+├── site/              # Jekyll content source: posts, layouts, assets, pages
 ├── docs/              # Project notes and migration docs
 ├── .claude/           # Claude Cowork / Dispatch skill definitions
 ├── .github/           # GitHub Actions workflows
 ├── logs/              # Pipeline run logs
 ├── outbox/            # Manual publishing and review bundles
+├── Gemfile            # Root Jekyll dependencies for Cloudflare/GitHub builds
+├── _config.yml        # Root Jekyll config, using source: site
 ├── .env               # Runtime secrets (local only)
 └── .env.example       # Safe template for commits
 ```
@@ -52,22 +54,22 @@ python automation/content_generator.py --test-structured
 
 ## Site / deployment
 
-Serve the blog locally from the site root:
+Serve the blog locally from the repo root:
 
 ```bash
-cd site
 bundle install
 bundle exec jekyll serve
 ```
 
 Current deployment setup:
 
-- Primary config for Cloudflare Pages: [site/_config.yml](C:/个人小项目/ClarityStack/site/_config.yml)
-- GitHub Pages mirror override: [site/_config.github-pages.yml](C:/个人小项目/ClarityStack/site/_config.github-pages.yml)
+- Primary root config for Cloudflare Pages: [_config.yml](C:/个人小项目/ClarityStack/_config.yml)
+- GitHub Pages mirror override: [_config.github-pages.yml](C:/个人小项目/ClarityStack/_config.github-pages.yml)
+- Source content directory: [site](C:/个人小项目/ClarityStack/site)
 - Cloudflare security headers: [site/_headers](C:/个人小项目/ClarityStack/site/_headers)
 - Migration guide: [docs/cloudflare-pages.md](C:/个人小项目/ClarityStack/docs/cloudflare-pages.md)
 
-GitHub Actions still builds the GitHub Pages mirror from `site/`, while Cloudflare Pages can connect directly to the same repository.
+Both Cloudflare Pages and GitHub Actions now build from the repo root, and Jekyll picks up the actual site files through `source: site`.
 
 ## Config locations
 
