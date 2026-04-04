@@ -188,8 +188,37 @@ img {
 
 .post-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 22px;
+}
+
+.pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 48px;
+}
+
+.pagination-btn {
+  display: inline-block;
+  padding: 8px 20px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  font-size: 0.9rem;
+  text-decoration: none;
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.pagination-btn:hover {
+  border-color: rgba(108, 99, 255, 0.6);
+  background: rgba(108, 99, 255, 0.08);
+}
+
+.pagination-info {
+  font-size: 0.9rem;
+  color: var(--muted, #888);
 }
 
 .post-card {
@@ -239,6 +268,7 @@ img {
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
+  margin-top: 1.5rem;
 }
 
 .tag-row.compact {

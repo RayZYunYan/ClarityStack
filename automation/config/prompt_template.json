@@ -8,7 +8,7 @@
     },
     {
       "key": "summary",
-      "instruction": "What does this article, paper, or release actually say? 2-3 factual sentences. No opinions here, just the core content.",
+      "instruction": "What does this article, paper, or release actually say? 2-3 factual sentences. No opinions here, just the core content. If this is a project or tool: (1) note its technical lineage — is it a fork, rebrand, or net-new project? (2) describe its core architectural layer, not just its user-visible features. If this is an event or incident: note whether the facts are confirmed by an official source or based on secondhand reporting.",
       "max_length": 400
     },
     {

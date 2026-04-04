@@ -9,8 +9,9 @@ layout: default
 </section>
 
 <section class="post-grid">
-  {% if site.posts.size > 0 %}
-    {% for post in site.posts %}
+  {% assign posts_to_show = paginator.posts | default: site.posts %}
+  {% if posts_to_show.size > 0 %}
+    {% for post in posts_to_show %}
       {% assign excerpt_words = post.content | strip_html | number_of_words %}
       {% assign excerpt_reading_time = excerpt_words | divided_by: 180 %}
       {% if excerpt_reading_time < 1 %}
@@ -35,9 +36,23 @@ layout: default
       </article>
     {% endfor %}
   {% else %}
-    <article class="post-card empty-state">
+    <article class="post-card empty-state" style="grid-column: 1 / -1;">
       <h2>No posts yet</h2>
       <p class="post-excerpt">The first approved ClarityStack roundup will appear here once the pipeline publishes a post.</p>
     </article>
   {% endif %}
 </section>
+
+{% if paginator.total_pages > 1 %}
+<nav class="pagination">
+  {% if paginator.previous_page %}
+    <a class="pagination-btn" href="{{ paginator.previous_page_path | relative_url }}">← Newer</a>
+  {% endif %}
+
+  <span class="pagination-info">Page {{ paginator.page }} of {{ paginator.total_pages }}</span>
+
+  {% if paginator.next_page %}
+    <a class="pagination-btn" href="{{ paginator.next_page_path | relative_url }}">Older →</a>
+  {% endif %}
+</nav>
+{% endif %}

@@ -18,3 +18,7 @@ defaults:
     values:
       layout: post
 excerpt_separator: "\n\n"
+paginate: 6
+paginate_path: "/page:num/"
+plugins:
+  - jekyll-paginate
