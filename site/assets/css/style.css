@@ -381,6 +381,19 @@ pre code,
   margin: 0;
 }
 
+.about-footer {
+  margin-top: 48px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.6;
+}
+
+.about-footer p {
+  margin: 0;
+}
+
 .empty-state {
   padding: 28px;
 }

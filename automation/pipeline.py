@@ -14,13 +14,14 @@ from typing import Any
 from dotenv import load_dotenv
 
 try:
-    from . import content_generator, fetcher, notify_dispatch, publish_github, publish_linkedin, publish_x
+    from . import content_generator, fetcher, notify_dispatch, polish_with_claude, publish_github, publish_linkedin, publish_x
     from .paths import ENV_PATH, LOG_DIR
     from .privacy_scanner import scan
 except ImportError:
     import content_generator
     import fetcher
     import notify_dispatch
+    import polish_with_claude
     import publish_github
     import publish_linkedin
     import publish_x
@@ -156,6 +157,14 @@ def main() -> int:
         "x": content_generator.generate(news_items, "x", structured_items=structured_items),
     }
     LOGGER.info("Structured assembly completed for %d platform(s)", len(content_map))
+
+    if os.getenv("CLAUDE_POLISH_ENABLED", "false").strip().lower() == "true":
+        LOGGER.info("Claude polish enabled — polishing generated content")
+        content_map = {
+            platform: polish_with_claude.polish(content, platform)
+            for platform, content in content_map.items()
+        }
+        LOGGER.info("Claude polish completed")
 
     cleaned_map, generated_findings = redact_generated_content(content_map)
     LOGGER.info("Second-pass privacy scan completed")

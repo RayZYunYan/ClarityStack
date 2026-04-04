@@ -1,5 +1,5 @@
 title: ClarityStack
-description: AI news and engineering analysis produced through a privacy-aware automation pipeline.
+description: "Curated AI news and analysis for builders — what matters, what's overhyped, and what to try next."
 url: https://claritystack.pages.dev
 baseurl: ""
 source: site
@@ -23,3 +23,7 @@ defaults:
     values:
       layout: post
 excerpt_separator: "\n\n"
+paginate: 6
+paginate_path: "/page:num/"
+plugins:
+  - jekyll-paginate
