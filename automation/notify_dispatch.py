@@ -8,7 +8,6 @@ import logging
 import pathlib
 import shutil
 import sys
-from typing import Any
 
 try:
     from .paths import REVIEW_DIR
