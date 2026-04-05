@@ -14,8 +14,10 @@ from dotenv import load_dotenv
 
 try:
     from .paths import ENV_PATH, REVIEW_DIR
+    from .notify_dispatch import promote_pending_to_approved
 except ImportError:
     from paths import ENV_PATH, REVIEW_DIR
+    from notify_dispatch import promote_pending_to_approved
 
 LOGGER = logging.getLogger(__name__)
 
@@ -31,17 +33,25 @@ PLATFORM_FILES = {
 }
 
 
-def read_preview() -> str:
-    """Read blog.md from pending for preview, falling back to first file found."""
+def read_preview() -> tuple[str, pathlib.Path | None]:
+    """Return (summary_text, blog_path) for Discord preview + attachment."""
     blog = PENDING_DIR / "blog.md"
     target = blog if blog.exists() else next(
         (p for p in sorted(PENDING_DIR.iterdir()) if p.is_file() and p.suffix in {".md", ".txt"}),
         None,
     ) if PENDING_DIR.exists() else None
     if not target:
-        return "(no preview available)"
+        return "(no preview available)", None
+
     text = target.read_text(encoding="utf-8")
-    return text[:1800] + "\n…(truncated)" if len(text) > 1800 else text
+    # Strip frontmatter for the summary snippet
+    body = text
+    if text.startswith("---"):
+        end = text.find("---", 3)
+        if end != -1:
+            body = text[end + 3:].lstrip()
+    summary = body[:300] + "\n…" if len(body) > 300 else body
+    return summary, target
 
 
 def apply_modification_with_claude(request: str) -> bool:
@@ -93,10 +103,12 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
         if PENDING_FLAG.exists():
             channel = client.get_channel(channel_id)
             if channel:
-                preview = read_preview()
+                summary, blog_path = read_preview()
+                kwargs = {"file": discord.File(blog_path, filename="blog_preview.md")} if blog_path else {}
                 await channel.send(
-                    f"**ClarityStack 待审稿**\n\n{preview}\n\n"
-                    "回复 `ok` 批准发布，或回复修改需求。"
+                    f"**ClarityStack 待审稿**\n\n{summary}\n\n"
+                    "回复 `ok` 批准发布，或回复修改需求。",
+                    **kwargs
                 )
                 PENDING_FLAG.unlink()
                 LOGGER.info("Sent pending notification and removed .pending flag")
@@ -111,6 +123,7 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
             return
 
         if message.content.strip().lower() == "ok":
+            promote_pending_to_approved()
             APPROVED_FLAG.touch()
             await message.channel.send("✅ 已批准，正在发布...")
             LOGGER.info("Article approved — triggering publish-approved")
@@ -135,10 +148,12 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
             updated = apply_modification_with_claude(message.content)
 
             if updated:
-                preview = read_preview()
+                summary, blog_path = read_preview()
+                kwargs = {"file": discord.File(blog_path, filename="blog_preview.md")} if blog_path else {}
                 await message.channel.send(
-                    f"📝 修改完成，更新后预览：\n\n{preview}\n\n"
-                    "回复 `ok` 发布，或继续发送修改需求。"
+                    f"📝 修改完成，更新后预览：\n\n{summary}\n\n"
+                    "回复 `ok` 发布，或继续发送修改需求。",
+                    **kwargs
                 )
             else:
                 await message.channel.send(
