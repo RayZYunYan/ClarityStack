@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import subprocess
+import sys
 
 import discord
 from dotenv import load_dotenv
@@ -63,8 +65,20 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
 
         if message.content.strip().lower() == "ok":
             APPROVED_FLAG.touch()
-            await message.channel.send("✅ 已批准，等待发布")
-            LOGGER.info("Article approved — .approved flag created")
+            await message.channel.send("✅ 已批准，正在发布...")
+            LOGGER.info("Article approved — triggering publish-approved")
+            result = subprocess.run(
+                [sys.executable, "-m", "automation.pipeline", "--publish-approved"],
+                capture_output=True,
+                text=True,
+                cwd=str(REVIEW_DIR.parent.parent),
+            )
+            if result.returncode == 0:
+                await message.channel.send("🚀 发布成功")
+                LOGGER.info("publish-approved completed successfully")
+            else:
+                await message.channel.send(f"⚠️ 发布失败：{result.stderr.strip()[-200:]}")
+                LOGGER.error("publish-approved failed: %s", result.stderr.strip())
         else:
             MODIFICATION_REQUEST.write_text(message.content, encoding="utf-8")
             await message.channel.send("📝 已记录修改需求")
