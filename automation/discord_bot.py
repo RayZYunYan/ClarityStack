@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
+import shutil
 import subprocess
 import sys
 
@@ -23,16 +24,62 @@ APPROVED_FLAG = REVIEW_DIR / ".approved"
 MODIFICATION_REQUEST = REVIEW_DIR / "modification_request.txt"
 PENDING_DIR = REVIEW_DIR / "pending"
 
+PLATFORM_FILES = {
+    "blog": "blog.md",
+    "linkedin": "linkedin.txt",
+    "x": "x.txt",
+}
+
 
 def read_preview() -> str:
-    """Read the first content file found in the pending directory."""
-    if not PENDING_DIR.exists():
+    """Read blog.md from pending for preview, falling back to first file found."""
+    blog = PENDING_DIR / "blog.md"
+    target = blog if blog.exists() else next(
+        (p for p in sorted(PENDING_DIR.iterdir()) if p.is_file() and p.suffix in {".md", ".txt"}),
+        None,
+    ) if PENDING_DIR.exists() else None
+    if not target:
         return "(no preview available)"
-    for path in sorted(PENDING_DIR.iterdir()):
-        if path.is_file() and path.suffix in {".md", ".txt"}:
-            text = path.read_text(encoding="utf-8")
-            return text[:1800] + "\n…(truncated)" if len(text) > 1800 else text
-    return "(no preview available)"
+    text = target.read_text(encoding="utf-8")
+    return text[:1800] + "\n…(truncated)" if len(text) > 1800 else text
+
+
+def apply_modification_with_claude(request: str) -> bool:
+    """Call Claude CLI to apply modification request to each platform file. Returns True if any file was updated."""
+    if shutil.which("claude") is None:
+        LOGGER.warning("claude CLI not found — skipping AI modification")
+        return False
+
+    updated = False
+    for platform, filename in PLATFORM_FILES.items():
+        file_path = PENDING_DIR / filename
+        if not file_path.exists():
+            continue
+
+        current = file_path.read_text(encoding="utf-8")
+        prompt = (
+            f"Apply the following modification request to this content. "
+            f"Return only the modified content with no explanation or preamble.\n\n"
+            f"Modification request: {request}\n\n"
+            f"Current content:\n{current}"
+        )
+
+        result = subprocess.run(
+            ["claude", "-p", prompt, "--output-format", "text", "--model", "sonnet", "--max-turns", "1"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=90,
+        )
+
+        if result.returncode == 0 and result.stdout.strip():
+            file_path.write_text(result.stdout.strip(), encoding="utf-8")
+            updated = True
+            LOGGER.info("Applied modification to %s", filename)
+        else:
+            LOGGER.warning("Claude modification failed for %s: %s", filename, result.stderr.strip()[:200])
+
+    return updated
 
 
 def build_bot(channel_id: int, owner_id: int) -> discord.Client:
@@ -79,10 +126,24 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
             else:
                 await message.channel.send(f"⚠️ 发布失败：{result.stderr.strip()[-200:]}")
                 LOGGER.error("publish-approved failed: %s", result.stderr.strip())
+
         else:
             MODIFICATION_REQUEST.write_text(message.content, encoding="utf-8")
-            await message.channel.send("📝 已记录修改需求")
-            LOGGER.info("Modification request saved to %s", MODIFICATION_REQUEST)
+            await message.channel.send("✍️ 正在调用 Claude 应用修改，请稍候...")
+            LOGGER.info("Applying modification: %s", message.content[:100])
+
+            updated = apply_modification_with_claude(message.content)
+
+            if updated:
+                preview = read_preview()
+                await message.channel.send(
+                    f"📝 修改完成，更新后预览：\n\n{preview}\n\n"
+                    "回复 `ok` 发布，或继续发送修改需求。"
+                )
+            else:
+                await message.channel.send(
+                    "⚠️ Claude CLI 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。"
+                )
 
     return client
 
