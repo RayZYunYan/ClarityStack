@@ -14,6 +14,7 @@ const { Client, GatewayIntentBits } = require("discord.js");
 const { execFileSync, spawnSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
+const { HttpsProxyAgent } = require("https-proxy-agent");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 
 // ── Paths (mirrors automation/paths.py) ──────────────────────────────────────
@@ -105,12 +106,16 @@ if (!token || !channelId || !ownerId) {
   process.exit(1);
 }
 
+const proxyUrl = process.env.HTTPS_PROXY || process.env.https_proxy;
+const wsOptions = proxyUrl ? { agent: new HttpsProxyAgent(proxyUrl) } : {};
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
   ],
+  ws: wsOptions,
 });
 
 client.once("ready", async () => {
