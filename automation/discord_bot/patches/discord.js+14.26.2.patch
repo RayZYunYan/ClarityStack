@@ -1,0 +1,12 @@
+diff --git a/node_modules/discord.js/src/client/websocket/WebSocketManager.js b/node_modules/discord.js/src/client/websocket/WebSocketManager.js
+index 360715b..9976e10 100644
+--- a/node_modules/discord.js/src/client/websocket/WebSocketManager.js
++++ b/node_modules/discord.js/src/client/websocket/WebSocketManager.js
+@@ -161,6 +161,7 @@ class WebSocketManager extends EventEmitter {
+       };
+       if (ws.buildIdentifyThrottler) wsOptions.buildIdentifyThrottler = ws.buildIdentifyThrottler;
+       if (ws.buildStrategy) wsOptions.buildStrategy = ws.buildStrategy;
++      if (ws.agent) wsOptions.agent = ws.agent;
+       this._ws = new WSWebSocketManager(wsOptions);
+       this.attachEvents();
+     }
