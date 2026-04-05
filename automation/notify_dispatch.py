@@ -76,6 +76,7 @@ def request_approval(content_preview: dict[str, str], output_dir: str | pathlib.
     write_platform_files(content_preview, pending_dir)
     pending_path = pathlib.Path(output_dir) / "pending.md"
     pending_path.write_text(render_pending_markdown(content_preview), encoding="utf-8")
+    (pathlib.Path(output_dir) / ".pending").touch()
     LOGGER.info("Wrote Dispatch review bundle to %s", pending_path)
     return str(pending_path)
 
