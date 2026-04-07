@@ -105,6 +105,14 @@ def promote_pending_to_approved(output_dir: str | pathlib.Path = REVIEW_DIR) -> 
     return load_review_bundle("approved", output_dir=output_dir)
 
 
+def notify_no_content(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
+    """Write a flag file so the Discord bot can notify the owner that no content was found."""
+    base = pathlib.Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / ".no_content").touch()
+    LOGGER.info("Wrote .no_content flag for Discord bot notification")
+
+
 def cleanup_review_bundle(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
     """Remove review artifacts after publishing."""
     base = pathlib.Path(output_dir)

@@ -21,8 +21,9 @@ require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 const REPO_ROOT    = path.resolve(__dirname, "../..");
 const REVIEW_DIR   = path.join(REPO_ROOT, "outbox", "review");
 const PENDING_DIR  = path.join(REVIEW_DIR, "pending");
-const PENDING_FLAG = path.join(REVIEW_DIR, ".pending");
-const APPROVED_FLAG = path.join(REVIEW_DIR, ".approved");
+const PENDING_FLAG    = path.join(REVIEW_DIR, ".pending");
+const NO_CONTENT_FLAG = path.join(REVIEW_DIR, ".no_content");
+const APPROVED_FLAG   = path.join(REVIEW_DIR, ".approved");
 const MODIFICATION_REQUEST = path.join(REVIEW_DIR, "modification_request.txt");
 
 const PLATFORM_FILES = {
@@ -33,22 +34,35 @@ const PLATFORM_FILES = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function readPreview() {
-  const blog = path.join(PENDING_DIR, "blog.md");
-  let target = null;
-
-  if (fs.existsSync(blog)) {
-    target = blog;
-  } else if (fs.existsSync(PENDING_DIR)) {
-    const files = fs.readdirSync(PENDING_DIR)
-      .filter(f => /\.(md|txt)$/.test(f))
-      .sort();
-    if (files.length) target = path.join(PENDING_DIR, files[0]);
+function parseFrontmatter(text) {
+  const match = text.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
+  if (!match) return { meta: {}, body: text };
+  const meta = {};
+  for (const line of match[1].split("\n")) {
+    const [key, ...rest] = line.split(":");
+    if (key && rest.length) meta[key.trim()] = rest.join(":").trim().replace(/^["']|["']$/g, "");
   }
+  return { meta, body: match[2].trim() };
+}
 
-  if (!target) return "(no preview available)";
-  const text = fs.readFileSync(target, "utf8");
-  return text.length > 1800 ? text.slice(0, 1800) + "\n…(truncated)" : text;
+function splitIntoChunks(text, maxLen = 1900) {
+  const chunks = [];
+  let remaining = text;
+  while (remaining.length > maxLen) {
+    let cut = remaining.lastIndexOf("\n\n", maxLen);
+    if (cut < 800) cut = remaining.lastIndexOf("\n", maxLen);
+    if (cut < 100) cut = maxLen;
+    chunks.push(remaining.slice(0, cut).trimEnd());
+    remaining = remaining.slice(cut).trimStart();
+  }
+  if (remaining.trim()) chunks.push(remaining.trim());
+  return chunks;
+}
+
+function readBlogFile() {
+  const blog = path.join(PENDING_DIR, "blog.md");
+  if (!fs.existsSync(blog)) return null;
+  return fs.readFileSync(blog, "utf8");
 }
 
 function which(cmd) {
@@ -118,21 +132,65 @@ const client = new Client({
   ws: wsOptions,
 });
 
+async function checkNoContent() {
+  if (!fs.existsSync(NO_CONTENT_FLAG)) return;
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) return;
+  await channel.send("📭 今日无新内容：所有数据源均不可用或近期已覆盖，跳过发布。");
+  fs.unlinkSync(NO_CONTENT_FLAG);
+  console.info("Sent no-content notification");
+}
+
+async function checkPending() {
+  if (!fs.existsSync(PENDING_FLAG)) return;
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) return;
+
+  const raw = readBlogFile();
+  if (!raw) {
+    await channel.send("⚠️ 找不到 blog.md，请检查 pending 目录。");
+    fs.unlinkSync(PENDING_FLAG);
+    return;
+  }
+
+  const { meta, body } = parseFrontmatter(raw);
+  const title    = meta.title || "（无标题）";
+  const date     = meta.date  || "（无日期）";
+  const wordCount = body.split(/\s+/).filter(Boolean).length;
+  const firstPara = body.split(/\n\n+/)[0].replace(/^#+\s*/, "").slice(0, 200);
+
+  // 1. 摘要卡片
+  await channel.send(
+    `**ClarityStack 待审稿**\n\n` +
+    `**标题：** ${title}\n` +
+    `**日期：** ${date}\n` +
+    `**字数：** ${wordCount} 词\n\n` +
+    `> ${firstPara}\n\n` +
+    `正文见下方 ↓（附件为原始 .md 文件）`
+  );
+
+  // 2. 正文分段发送（Discord 原生渲染 Markdown）
+  const chunks = splitIntoChunks(body);
+  for (const chunk of chunks) {
+    await channel.send(chunk);
+  }
+
+  // 3. 附上原始文件
+  const blogPath = path.join(PENDING_DIR, "blog.md");
+  await channel.send({
+    content: "---\n回复 `ok` 批准发布，或直接发送修改需求。",
+    files: [{ attachment: blogPath, name: `blog-${date}.md` }],
+  });
+
+  fs.unlinkSync(PENDING_FLAG);
+  console.info("Sent pending notification and removed .pending flag");
+}
+
 client.once("ready", async () => {
   console.info(`Discord bot ready as ${client.user.tag}`);
-
-  if (fs.existsSync(PENDING_FLAG)) {
-    const channel = client.channels.cache.get(channelId);
-    if (channel) {
-      const preview = readPreview();
-      await channel.send(
-        `**ClarityStack 待审稿**\n\n${preview}\n\n` +
-        "回复 `ok` 批准发布，或回复修改需求。"
-      );
-      fs.unlinkSync(PENDING_FLAG);
-      console.info("Sent pending notification and removed .pending flag");
-    }
-  }
+  await checkNoContent();
+  await checkPending();
+  setInterval(async () => { await checkNoContent(); await checkPending(); }, 30_000);
 });
 
 client.on("messageCreate", async (message) => {
