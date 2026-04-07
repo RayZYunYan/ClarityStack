@@ -124,6 +124,7 @@ def main() -> int:
 
     if args.publish_approved:
         LOGGER.info("Pipeline started in publish-approved mode")
+        notify_dispatch.promote_pending_to_approved()
         approved_content = notify_dispatch.load_review_bundle("approved")
         preview_content(approved_content)
         if args.dry_run:
@@ -141,6 +142,12 @@ def main() -> int:
 
     news_items = fetcher.fetch_news(limit=args.limit)
     LOGGER.info("Fetched %d news item(s)", len(news_items))
+
+    if not news_items:
+        LOGGER.warning("No news items fetched — all sources unavailable or filtered. Exiting without publishing.")
+        notify_dispatch.notify_no_content()
+        print("Nothing to publish today: no news items were fetched.")
+        return 0
 
     raw_payload = json.dumps(news_items, indent=2, ensure_ascii=False)
     _, source_findings = scan(raw_payload)
