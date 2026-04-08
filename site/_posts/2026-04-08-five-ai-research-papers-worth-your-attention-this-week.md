@@ -4,8 +4,6 @@ date: 2026-04-08
 tags: [ai, research, multi-agent, test-time-training, video-diffusion, embeddings, llm]
 ---
 
-# Five AI Research Papers Worth Your Attention This Week
-
 Not every week in AI research produces something that changes how I think about building systems — but this one came close on a few fronts. There's a multi-agent research tool that could actually be useful, a training paradigm shift I think is underrated, a video model that solves a niche but real post-production problem, and a small embeddings advance that's easy to overlook. I've also included a Meta announcement that's generating attention I'm not sure it deserves. A mix worth sitting with.
 
 ---

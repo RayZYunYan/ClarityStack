@@ -34,9 +34,11 @@ def write_manual_draft(content: str) -> pathlib.Path:
 
 
 def extract_first_url(content: str) -> str | None:
-    """Extract the first URL from a content block."""
+    """Extract the first URL from a content block, stripping trailing punctuation."""
     match = re.search(r"https?://\S+", content)
-    return match.group(0) if match else None
+    if not match:
+        return None
+    return match.group(0).rstrip(").,;\"'`>")
 
 
 def refresh_access_token(credentials: dict[str, Any]) -> str | None:

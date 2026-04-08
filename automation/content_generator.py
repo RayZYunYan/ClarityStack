@@ -29,6 +29,7 @@ except ImportError:
 LOGGER = logging.getLogger(__name__)
 GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
 URL_PATTERN = re.compile(r"https?://\S+")
+LINKEDIN_CTA = "\n\nMore AI signals for builders at ClarityStack → https://claritystack.rayzhang418.workers.dev/"
 DEFAULT_SAMPLE_ITEMS = [
     {
         "title": "AMD launches Lemonade, an open-source local LLM server for GPUs and NPUs",
@@ -390,11 +391,13 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
             """
             Assemble one LinkedIn post.
             - Professional but conversational
-            - Lead with the strongest hook and focus on the most important 1-2 items
+            - Pick the single most interesting item (two at most) — ignore the rest
             - Weave in insights and counterpoints naturally
-            - Mention any remaining items briefly, with their links inline next to the relevant mention
-            - Use 1-2 emoji max and keep the post under 3000 characters
+            - Include the source link inline, next to the relevant mention
+            - Use 1-2 emoji max and keep the post under 2800 characters (leave room for a footer)
+            - Do NOT use any Markdown formatting: no **bold**, no *italics*, no ## headers, no bullet hyphens
             - Do not dump links at the bottom
+            - Do not add a sign-off or closing line — that will be added separately
             """
         ).strip(),
         "blog": textwrap.dedent(
@@ -402,7 +405,8 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
             Assemble one Markdown blog post.
             - Preserve Markdown output
             - Include frontmatter with title, date, and tags
-            - Give each item its own section
+            - Do NOT repeat the title as an H1 heading after the frontmatter — start directly with the first paragraph
+            - Give each item its own section with an H2 heading
             - Write in first person and sound like a builder talking to peers
             - In each section, move through What, So What, and My Take naturally
             - Use relevance_to_builders to sharpen the So What layer
@@ -491,16 +495,28 @@ def sanitize_blog_output(content: str) -> str:
     return content.strip()
 
 
+def strip_markdown_for_linkedin(content: str) -> str:
+    """Remove markdown formatting that LinkedIn renders as literal characters."""
+    # Remove bold/italic markers
+    content = re.sub(r"\*{1,3}(.+?)\*{1,3}", r"\1", content)
+    # Remove headers (## Title → Title)
+    content = re.sub(r"^#{1,6}\s+", "", content, flags=re.MULTILINE)
+    # Remove inline code backticks
+    content = re.sub(r"`([^`]+)`", r"\1", content)
+    # Remove markdown links — keep text and bare URL so LinkedIn auto-detects the link: [text](url) → text url
+    content = re.sub(r"\[([^\]]+)\]\((https?://[^\)]+)\)", r"\1 \2", content)
+    return content
+
+
 def ensure_inline_links(content: str, structured_items: list[dict[str, str]], platform: str) -> str:
     """Guarantee key source URLs survive assembly."""
+    if platform == "linkedin":
+        # For LinkedIn we only focus on 1-2 items — don't append the rest
+        return content
+
     missing = [item for item in structured_items if item["source_url"] not in content]
     if not missing:
         return content
-
-    if platform == "linkedin":
-        additions = " ".join(f"Also worth tracking: {item['hook']} ({item['source_url']})." for item in missing[:3])
-        candidate = content.rstrip() + "\n\n" + additions
-        return candidate[:3000].rstrip() if len(candidate) > 3000 else candidate
 
     if platform == "blog":
         reference_lines = ["", "## References"]
@@ -599,10 +615,9 @@ def assemble_with_model(
 
 def build_linkedin_fallback(structured_items: list[dict[str, str]]) -> str:
     """Build a readable LinkedIn post from structured JSON."""
-    focus = structured_items[:2]
-    rest = structured_items[2:5]
+    focus = structured_items[:1]
     if not focus:
-        return "No AI updates were available today."
+        return "No AI updates were available today." + LINKEDIN_CTA
 
     paragraphs = [
         (
@@ -610,17 +625,13 @@ def build_linkedin_fallback(structured_items: list[dict[str, str]]) -> str:
             f"{focus[0]['source_url']}"
         )
     ]
-    if len(focus) > 1:
+    if len(structured_items) > 1:
+        second = structured_items[1]
         paragraphs.append(
-            f"Another signal worth watching: {focus[1]['hook']} {focus[1]['context']} {focus[1]['counterpoint']} {focus[1]['source_url']}"
+            f"Also worth a look: {second['hook']} {second['context']} {second['source_url']}"
         )
-    if rest:
-        brief = " ".join(
-            f"{item['hook']} {item['source_url']}" for item in rest[:2]
-        )
-        paragraphs.append(f"Two shorter reads on the radar: {brief}")
-    paragraphs.append("If I were prioritizing this stack today, I would test the pieces that change deployment economics or workflow reliability first and ignore the rest. #AI #LLMs #OpenSource #AIBuilders")
-    return "\n\n".join(paragraphs)
+    paragraphs.append("#AI #LLMs #AIBuilders")
+    return "\n\n".join(paragraphs) + LINKEDIN_CTA
 
 
 def build_blog_fallback(structured_items: list[dict[str, str]]) -> str:
@@ -696,7 +707,9 @@ def post_process_output(content: str, platform: str, structured_items: list[dict
         processed = sanitize_blog_output(processed)
         processed = ensure_inline_links(processed, structured_items, platform)
     elif platform == "linkedin":
+        processed = strip_markdown_for_linkedin(processed)
         processed = ensure_inline_links(processed, structured_items, platform)
+        processed = processed.rstrip() + LINKEDIN_CTA
     else:
         processed = normalize_x_thread(processed, structured_items)
     return processed.strip()

@@ -51,15 +51,18 @@ def build_prompt(content: str, platform: str, style_guide: str) -> str:
             Polish this LinkedIn post.
             - Conversational builder tone, still polished enough for LinkedIn
             - Use 1-2 emoji max, naturally placed
-            - Keep under 3000 characters
-            - Keep the opening hook focused on the most important 1-2 news items
+            - Keep under 2800 characters (a footer will be appended separately)
+            - Keep the opening hook focused on the most important 1-2 news items only — drop the rest
             - Keep each source link inline next to its relevant mention, not dumped at the bottom
+            - Do NOT use any Markdown formatting: no **bold**, no *italics*, no ## headers
+            - Do not add a sign-off or closing line
             """
         ).strip(),
         "blog": textwrap.dedent(
             """
             Polish this Markdown blog post.
             - Preserve Markdown formatting and frontmatter exactly
+            - If there is an H1 heading immediately after the frontmatter that repeats the title, remove it — the layout renders the title from frontmatter already
             - Keep the writing in first person with clear technical judgment
             - Improve transitions between sections without flattening the voice
             - Make code references and technical terms precise
