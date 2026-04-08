@@ -25,6 +25,18 @@ if [ ! -d "$BOT_DIR/node_modules" ]; then
 fi
 
 while true; do
+    # Re-check before each restart: exit if another keepalive already started a node process
+    if [ -f "$PIDFILE" ]; then
+        PID=$(cat "$PIDFILE")
+        if [ -f "/proc/$PID/status" ]; then
+            cmdline=$(cat /proc/$PID/cmdline 2>/dev/null | tr '\0' ' ')
+            if echo "$cmdline" | grep -q "index.js"; then
+                echo "[$(date)] Another keepalive already restarted bot (PID $PID), exiting." >> "$LOGFILE"
+                exit 0
+            fi
+        fi
+        rm -f "$PIDFILE"
+    fi
     echo "[$(date)] Starting discord bot (Node.js)..." >> "$LOGFILE"
     /usr/local/bin/node "$BOT_DIR/index.js" >> "$LOGFILE" 2>&1 &
     NODE_PID=$!

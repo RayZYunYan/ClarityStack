@@ -65,6 +65,7 @@ function readBlogFile() {
   return fs.readFileSync(blog, "utf8");
 }
 
+
 function which(cmd) {
   try {
     execFileSync("which", [cmd], { stdio: "pipe" });
@@ -229,11 +230,28 @@ client.on("messageCreate", async (message) => {
     const updated = applyModificationWithClaude(message.content);
 
     if (updated) {
-      const preview = readPreview();
-      await message.channel.send(
-        `📝 修改完成，更新后预览：\n\n${preview}\n\n` +
-        "回复 `ok` 发布，或继续发送修改需求。"
-      );
+      await message.channel.send("📝 修改完成，完整预览如下：");
+
+      // Blog full content in chunks
+      const blogRaw = readBlogFile();
+      if (blogRaw) {
+        await message.channel.send("**── BLOG ──**");
+        for (const chunk of splitIntoChunks(blogRaw)) {
+          await message.channel.send(chunk);
+        }
+      }
+
+      // LinkedIn full content
+      const linkedinPath = path.join(PENDING_DIR, PLATFORM_FILES.linkedin);
+      if (fs.existsSync(linkedinPath)) {
+        const liContent = fs.readFileSync(linkedinPath, "utf8").trim();
+        await message.channel.send("**── LINKEDIN ──**");
+        for (const chunk of splitIntoChunks(liContent)) {
+          await message.channel.send(chunk);
+        }
+      }
+
+      await message.channel.send("---\n回复 `ok` 发布，或继续发送修改需求。");
     } else {
       await message.channel.send(
         "⚠️ Claude CLI 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。"

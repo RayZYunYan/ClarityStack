@@ -357,8 +357,8 @@ def extract_structured_item(item: dict[str, Any], template: dict[str, Any], api_
             LOGGER.warning("Gemini structured extraction returned invalid JSON on attempt %d: %s", attempt, exc)
         except requests.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code == 429:
-                LOGGER.warning("Gemini extraction remained rate limited; using minimal structured fallback")
+            if status_code in {429, 503}:
+                LOGGER.warning("Gemini extraction unavailable (HTTP %s); using minimal structured fallback", status_code)
                 return build_minimal_structured_item(item, template)
             raise
         except Exception as exc:
