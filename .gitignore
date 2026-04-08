@@ -7,6 +7,7 @@ _site/
 site/_site/
 site/.jekyll-cache/
 logs/*.log
+logs/*.pid
 outbox/
 node_modules/
 .claude/
