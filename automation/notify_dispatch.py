@@ -7,6 +7,7 @@ import json
 import logging
 import pathlib
 import shutil
+import subprocess
 import sys
 
 try:
@@ -15,6 +16,36 @@ except ImportError:
     from paths import REVIEW_DIR
 
 LOGGER = logging.getLogger(__name__)
+
+try:
+    from .paths import REPO_ROOT
+except ImportError:
+    from paths import REPO_ROOT
+
+_START_BOT_SCRIPT = REPO_ROOT / "automation" / "start_bot.sh"
+
+
+def _ensure_bot_running() -> None:
+    """Start the bot keepalive in the background if it isn't already running."""
+    pidfile = REPO_ROOT / "logs" / "discord_bot.pid"
+    if pidfile.exists():
+        try:
+            pid = int(pidfile.read_text().strip())
+            status = pathlib.Path(f"/proc/{pid}/status")
+            if status.exists():
+                LOGGER.info("Bot already running (PID %d), skipping launch.", pid)
+                return
+        except (ValueError, OSError):
+            pass
+    LOGGER.info("Starting bot keepalive via start_bot.sh...")
+    subprocess.Popen(
+        ["bash", str(_START_BOT_SCRIPT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 PLATFORM_FILES = {
     "linkedin": "linkedin.txt",
     "blog": "blog.md",
@@ -77,6 +108,7 @@ def request_approval(content_preview: dict[str, str], output_dir: str | pathlib.
     pending_path.write_text(render_pending_markdown(content_preview), encoding="utf-8")
     (pathlib.Path(output_dir) / ".pending").touch()
     LOGGER.info("Wrote Dispatch review bundle to %s", pending_path)
+    _ensure_bot_running()
     return str(pending_path)
 
 

@@ -42,7 +42,13 @@ while true; do
     NODE_PID=$!
     echo "$NODE_PID" > "$PIDFILE"
     wait "$NODE_PID"
+    EXIT_CODE=$?
     rm -f "$PIDFILE"
-    echo "[$(date)] Bot exited, restarting in 10s..." >> "$LOGFILE"
+    # If bot exited cleanly and there is no pending review, stop the keepalive.
+    if [ ! -f "/sandbox/ClarityStack/outbox/review/.pending" ]; then
+        echo "[$(date)] Bot exited (code $EXIT_CODE) and no .pending flag — keepalive done." >> "$LOGFILE"
+        exit 0
+    fi
+    echo "[$(date)] Bot exited (code $EXIT_CODE), .pending still exists — restarting in 10s..." >> "$LOGFILE"
     sleep 10
 done

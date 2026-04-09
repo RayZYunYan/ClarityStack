@@ -133,6 +133,15 @@ const client = new Client({
   ws: wsOptions,
 });
 
+function scheduleShutdown(delaySec = 3) {
+  console.info(`Scheduling shutdown in ${delaySec}s`);
+  setTimeout(() => {
+    console.info("Bot shutting down — task complete.");
+    client.destroy();
+    process.exit(0);
+  }, delaySec * 1000);
+}
+
 async function checkNoContent() {
   if (!fs.existsSync(NO_CONTENT_FLAG)) return;
   const channel = client.channels.cache.get(channelId);
@@ -140,6 +149,7 @@ async function checkNoContent() {
   await channel.send("📭 今日无新内容：所有数据源均不可用或近期已覆盖，跳过发布。");
   fs.unlinkSync(NO_CONTENT_FLAG);
   console.info("Sent no-content notification");
+  scheduleShutdown(3);
 }
 
 async function checkPending() {
@@ -216,6 +226,7 @@ client.on("messageCreate", async (message) => {
     if (result.status === 0) {
       await message.channel.send("🚀 发布成功");
       console.info("publish-approved completed successfully");
+      scheduleShutdown(3);
     } else {
       const errTail = (result.stderr || "").slice(-200);
       await message.channel.send(`⚠️ 发布失败：${errTail}`);
