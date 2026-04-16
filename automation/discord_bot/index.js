@@ -238,7 +238,14 @@ client.on("messageCreate", async (message) => {
     await message.channel.send("✍️ 正在调用 Claude 应用修改，请稍候...");
     console.info(`Applying modification: ${message.content.slice(0, 100)}`);
 
-    const updated = applyModificationWithClaude(message.content);
+    let updated;
+    try {
+      updated = applyModificationWithClaude(message.content);
+    } catch (err) {
+      console.error(`Modification error: ${err.message}`);
+      await message.channel.send(`⚠️ 修改失败：${err.message}`);
+      return;
+    }
 
     if (updated) {
       await message.channel.send("📝 修改完成，完整预览如下：");

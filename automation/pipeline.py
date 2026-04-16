@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import pathlib
+import pwd
 import sys
 from typing import Any
 
@@ -37,13 +38,27 @@ def setup_logging() -> pathlib.Path:
     log_dir.mkdir(exist_ok=True)
     log_path = log_dir / f"pipeline_{dt.date.today().isoformat()}.log"
 
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        handlers.append(logging.FileHandler(log_path, encoding="utf-8"))
+    except PermissionError:
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(asctime)s %(levelname)s %(name)s %(message)s",
+            handlers=handlers,
+        )
+        logging.warning(
+            "Cannot write to log file %s (permission denied). "
+            "Check file ownership — it may be owned by root. "
+            "Logging to console only.",
+            log_path,
+        )
+        return log_path
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s %(message)s",
-        handlers=[
-            logging.StreamHandler(),
-            logging.FileHandler(log_path, encoding="utf-8"),
-        ],
+        handlers=handlers,
     )
     return log_path
 
@@ -113,8 +128,21 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _drop_root(username: str = "sandbox") -> None:
+    """If running as root, drop privileges to the given user."""
+    if os.getuid() != 0:
+        return
+    try:
+        pw = pwd.getpwnam(username)
+        os.setgid(pw.pw_gid)
+        os.setuid(pw.pw_uid)
+    except (KeyError, PermissionError):
+        pass
+
+
 def main() -> int:
     """Run the full automation pipeline."""
+    _drop_root()
     load_dotenv(ENV_PATH)
     log_path = setup_logging()
     if hasattr(sys.stdout, "reconfigure"):

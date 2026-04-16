@@ -24,6 +24,9 @@ if [ ! -d "$BOT_DIR/node_modules" ]; then
     npm install --prefix "$BOT_DIR" >> "$LOGFILE" 2>&1
 fi
 
+RETRY_DELAYS=(60 180 300 600)
+ATTEMPT=0
+
 while true; do
     # Re-check before each restart: exit if another keepalive already started a node process
     if [ -f "$PIDFILE" ]; then
@@ -37,18 +40,28 @@ while true; do
         fi
         rm -f "$PIDFILE"
     fi
-    echo "[$(date)] Starting discord bot (Node.js)..." >> "$LOGFILE"
+    echo "[$(date)] Starting discord bot (Node.js)... (attempt $((ATTEMPT + 1))/${#RETRY_DELAYS[@]})" >> "$LOGFILE"
     /usr/local/bin/node "$BOT_DIR/index.js" >> "$LOGFILE" 2>&1 &
     NODE_PID=$!
     echo "$NODE_PID" > "$PIDFILE"
     wait "$NODE_PID"
     EXIT_CODE=$?
     rm -f "$PIDFILE"
+
     # If bot exited cleanly and there is no pending review, stop the keepalive.
     if [ ! -f "/sandbox/ClarityStack/outbox/review/.pending" ]; then
         echo "[$(date)] Bot exited (code $EXIT_CODE) and no .pending flag — keepalive done." >> "$LOGFILE"
         exit 0
     fi
-    echo "[$(date)] Bot exited (code $EXIT_CODE), .pending still exists — restarting in 10s..." >> "$LOGFILE"
-    sleep 10
+
+    # Backoff retry logic
+    if [ "$ATTEMPT" -lt "${#RETRY_DELAYS[@]}" ]; then
+        DELAY="${RETRY_DELAYS[$ATTEMPT]}"
+        echo "[$(date)] Bot exited (code $EXIT_CODE), retry $((ATTEMPT + 1))/${#RETRY_DELAYS[@]} — waiting ${DELAY}s before next attempt..." >> "$LOGFILE"
+        sleep "$DELAY"
+        ATTEMPT=$((ATTEMPT + 1))
+    else
+        echo "[$(date)] ERROR: Bot failed to stay connected after ${#RETRY_DELAYS[@]} attempts. Giving up. Manual intervention required." >> "$LOGFILE"
+        exit 1
+    fi
 done
