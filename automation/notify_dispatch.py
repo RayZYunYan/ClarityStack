@@ -31,8 +31,8 @@ def _ensure_bot_running() -> None:
     if pidfile.exists():
         try:
             pid = int(pidfile.read_text().strip())
-            status = pathlib.Path(f"/proc/{pid}/status")
-            if status.exists():
+            cmdline = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode()
+            if "index.js" in cmdline:
                 LOGGER.info("Bot already running (PID %d), skipping launch.", pid)
                 return
         except (ValueError, OSError):
