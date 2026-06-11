@@ -7,6 +7,7 @@ import json
 import logging
 import pathlib
 import shutil
+import subprocess
 import sys
 
 try:
@@ -15,6 +16,36 @@ except ImportError:
     from paths import REVIEW_DIR
 
 LOGGER = logging.getLogger(__name__)
+
+try:
+    from .paths import REPO_ROOT
+except ImportError:
+    from paths import REPO_ROOT
+
+_START_BOT_SCRIPT = REPO_ROOT / "automation" / "start_bot.sh"
+
+
+def _ensure_bot_running() -> None:
+    """Start the bot keepalive in the background if it isn't already running."""
+    pidfile = REPO_ROOT / "logs" / "discord_bot.pid"
+    if pidfile.exists():
+        try:
+            pid = int(pidfile.read_text().strip())
+            cmdline = pathlib.Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\x00", b" ").decode()
+            if "index.js" in cmdline:
+                LOGGER.info("Bot already running (PID %d), skipping launch.", pid)
+                return
+        except (ValueError, OSError):
+            pass
+    LOGGER.info("Starting bot keepalive via start_bot.sh...")
+    subprocess.Popen(
+        ["bash", str(_START_BOT_SCRIPT)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
+    )
+
+
 PLATFORM_FILES = {
     "linkedin": "linkedin.txt",
     "blog": "blog.md",
@@ -77,6 +108,7 @@ def request_approval(content_preview: dict[str, str], output_dir: str | pathlib.
     pending_path.write_text(render_pending_markdown(content_preview), encoding="utf-8")
     (pathlib.Path(output_dir) / ".pending").touch()
     LOGGER.info("Wrote Dispatch review bundle to %s", pending_path)
+    _ensure_bot_running()
     return str(pending_path)
 
 
@@ -103,6 +135,14 @@ def promote_pending_to_approved(output_dir: str | pathlib.Path = REVIEW_DIR) -> 
         if source.exists():
             shutil.copy2(source, approved_dir / filename)
     return load_review_bundle("approved", output_dir=output_dir)
+
+
+def notify_no_content(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
+    """Write a flag file so the Discord bot can notify the owner that no content was found."""
+    base = pathlib.Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / ".no_content").touch()
+    LOGGER.info("Wrote .no_content flag for Discord bot notification")
 
 
 def cleanup_review_bundle(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:

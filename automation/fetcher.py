@@ -13,9 +13,18 @@ import urllib.parse
 import xml.etree.ElementTree as ET
 from typing import Any
 
+import pathlib
+
 import requests
 
 LOGGER = logging.getLogger(__name__)
+
+try:
+    from .paths import OUTBOX_DIR, SITE_POSTS_DIR
+except ImportError:
+    from paths import OUTBOX_DIR, SITE_POSTS_DIR
+
+PUBLISH_HISTORY_PATH = pathlib.Path(OUTBOX_DIR) / "publish_history.json"
 USER_AGENT = "ClarityStackFetcher/1.0 (+https://github.com/RayZYunYan/ClarityStack)"
 KEYWORDS = {
     "ai",
@@ -75,7 +84,7 @@ def compute_relevance(source: str, title: str, summary: str, extra_weight: float
 def fetch_arxiv(limit: int = 5, session: requests.Session | None = None) -> list[dict[str, Any]]:
     """Fetch recent AI and CL papers from ArXiv."""
     current_utc = dt.datetime.now(dt.timezone.utc)
-    cutoff = current_utc - dt.timedelta(days=1)
+    cutoff = current_utc - dt.timedelta(days=2)
     search_query = urllib.parse.quote('(cat:cs.AI OR cat:cs.CL)')
     url = (
         "https://export.arxiv.org/api/query?"
@@ -230,6 +239,84 @@ def fetch_hacker_news(limit: int = 5, session: requests.Session | None = None) -
     return items
 
 
+def extract_url_slug(url: str) -> str:
+    """Return a normalised identifier for a URL — repo path for GitHub, domain+path otherwise."""
+    url = url.lower().rstrip("/")
+    github_match = re.search(r"github\.com/([^/]+/[^/?\s#)(>\]\"']+)", url)
+    if github_match:
+        return github_match.group(1)
+    domain_match = re.search(r"https?://(?:www\.)?([^/?\s#]+)(/[^?\s#]*)?", url)
+    if domain_match:
+        return domain_match.group(1) + (domain_match.group(2) or "").rstrip("/")
+    return url
+
+
+def load_recent_slugs(days: int = 14) -> set[str]:
+    """Return URL slugs seen in published content over the past *days* days.
+
+    Reads from two sources:
+    - outbox/publish_history.json  (authoritative; written after each real publish)
+    - site/_posts/*.md             (fallback for manually committed posts)
+    """
+    cutoff = dt.date.today() - dt.timedelta(days=days)
+    url_pattern = re.compile(r"https?://\S+")
+    seen: set[str] = set()
+
+    # Primary: local history file written by publish_github after each publish
+    if PUBLISH_HISTORY_PATH.exists():
+        try:
+            import json as _json
+            records = _json.loads(PUBLISH_HISTORY_PATH.read_text(encoding="utf-8"))
+            for record in records:
+                try:
+                    record_date = dt.date.fromisoformat(record.get("date", ""))
+                except ValueError:
+                    continue
+                if record_date < cutoff:
+                    continue
+                for url in record.get("urls", []):
+                    seen.add(extract_url_slug(url))
+        except Exception as exc:
+            LOGGER.warning("Could not read publish history: %s", exc)
+
+    # Fallback: scan local site/_posts/ (useful for manually committed posts)
+    posts_dir = pathlib.Path(SITE_POSTS_DIR)
+    if posts_dir.exists():
+        for post_file in posts_dir.glob("*.md"):
+            date_match = re.match(r"(\d{4}-\d{2}-\d{2})", post_file.name)
+            if not date_match:
+                continue
+            try:
+                post_date = dt.date.fromisoformat(date_match.group(1))
+            except ValueError:
+                continue
+            if post_date < cutoff:
+                continue
+            text = post_file.read_text(encoding="utf-8", errors="ignore")
+            for url in url_pattern.findall(text):
+                seen.add(extract_url_slug(url.rstrip(").,\"'`>")))
+
+    if seen:
+        LOGGER.info("History filter: %d slug(s) seen in the past %d days", len(seen), days)
+    return seen
+
+
+def filter_recent_duplicates(
+    items: list[dict[str, Any]], seen_slugs: set[str]
+) -> list[dict[str, Any]]:
+    """Remove items whose URL slug was already covered in recent published posts."""
+    if not seen_slugs:
+        return items
+    fresh = []
+    for item in items:
+        slug = extract_url_slug(item.get("url", ""))
+        if slug in seen_slugs:
+            LOGGER.info("Skipping recently covered item: %s (%s)", item.get("title", ""), slug)
+        else:
+            fresh.append(item)
+    return fresh
+
+
 def deduplicate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Deduplicate items by URL while keeping the highest scoring variant."""
     deduped: dict[str, dict[str, Any]] = {}
@@ -243,14 +330,31 @@ def deduplicate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 def fetch_news(limit: int = 10) -> list[dict[str, Any]]:
     """Fetch and rank AI-related items across all configured sources."""
+    sources = [
+        ("arxiv",      lambda s: fetch_arxiv(limit=5, session=s)),
+        ("github",     lambda s: fetch_github_trending(limit=5, session=s)),
+        ("hackernews", lambda s: fetch_hacker_news(limit=5, session=s)),
+    ]
     with requests.Session() as session:
         candidates = []
-        candidates.extend(fetch_arxiv(limit=5, session=session))
-        candidates.extend(fetch_github_trending(limit=5, session=session))
-        candidates.extend(fetch_hacker_news(limit=5, session=session))
+        for name, fetcher in sources:
+            try:
+                items = fetcher(session)
+                LOGGER.info("Fetched %d item(s) from %s", len(items), name)
+                candidates.extend(items)
+            except Exception as exc:
+                LOGGER.warning("Source %s unavailable: %s", name, exc)
 
     unique_items = deduplicate_items(candidates)
-    ranked = sorted(unique_items, key=lambda item: item["relevance_score"], reverse=True)
+    seen_slugs = load_recent_slugs(days=14)
+    fresh_items = filter_recent_duplicates(unique_items, seen_slugs)
+
+    # Fall back to all unique items if history filter removed everything
+    pool = fresh_items if fresh_items else unique_items
+    if not fresh_items:
+        LOGGER.warning("History filter removed all candidates; using unfiltered pool")
+
+    ranked = sorted(pool, key=lambda item: item["relevance_score"], reverse=True)
     return ranked[: max(5, min(limit, 10))]
 
 

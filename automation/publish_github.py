@@ -17,9 +17,11 @@ import requests
 from dotenv import load_dotenv
 
 try:
-    from .paths import ENV_PATH
+    from .paths import ENV_PATH, OUTBOX_DIR
 except ImportError:
-    from paths import ENV_PATH
+    from paths import ENV_PATH, OUTBOX_DIR
+
+HISTORY_PATH = OUTBOX_DIR / "publish_history.json"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -79,7 +81,30 @@ def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:
 
     payload = response.json()
     file_url = payload.get("content", {}).get("html_url", "")
+    _record_publish_history(content, file_url)
     return {"success": True, "url": file_url, "error": None}
+
+
+def _record_publish_history(content: str, file_url: str) -> None:
+    """Append a publish record to the local history file for the dedup filter."""
+    url_pattern = re.compile(r"https?://\S+")
+    urls = [u.rstrip(").,\"'`>") for u in url_pattern.findall(content)]
+    record = {
+        "date": dt.date.today().isoformat(),
+        "file_url": file_url,
+        "urls": urls,
+    }
+    try:
+        HISTORY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        history: list[Any] = []
+        if HISTORY_PATH.exists():
+            history = json.loads(HISTORY_PATH.read_text(encoding="utf-8"))
+        cutoff = (dt.date.today() - dt.timedelta(days=14)).isoformat()
+        history = [r for r in history if r.get("date", "") >= cutoff]
+        history.append(record)
+        HISTORY_PATH.write_text(json.dumps(history, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        LOGGER.warning("Could not write publish history: %s", exc)
 
 
 def load_credentials() -> dict[str, str]:
