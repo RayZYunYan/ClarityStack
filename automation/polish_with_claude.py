@@ -1,4 +1,4 @@
-"""Polish generated content using Claude Code CLI."""
+"""Polish generated content using the Anthropic Messages API."""
 
 from __future__ import annotations
 
@@ -6,14 +6,14 @@ import argparse
 import logging
 import pathlib
 import re
-import shutil
-import subprocess
 import sys
 import textwrap
 
 try:
+    from .anthropic_client import call_anthropic, get_anthropic_api_key
     from .paths import STYLE_GUIDE_PATH
 except ImportError:
+    from anthropic_client import call_anthropic, get_anthropic_api_key
     from paths import STYLE_GUIDE_PATH
 
 LOGGER = logging.getLogger(__name__)
@@ -160,44 +160,21 @@ def validate_polished_content(original: str, polished: str, platform: str) -> bo
 
 
 def polish(content: str, platform: str, style_guide_path: str = str(STYLE_GUIDE_PATH)) -> str:
-    """Polish content with Claude Code CLI, falling back to the original text."""
+    """Polish content with the Anthropic API, falling back to the original text."""
     if not content.strip():
         return content
-    if shutil.which("claude") is None:
+    if not get_anthropic_api_key():
         return content
 
     style_guide = load_style_guide(style_guide_path)
     prompt = build_prompt(content, platform, style_guide)
 
     try:
-        result = subprocess.run(
-            [
-                "claude",
-                "-p",
-                prompt,
-                "--output-format",
-                "text",
-                "--model",
-                "sonnet",
-                "--max-turns",
-                "1",
-            ],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=60,
-            check=False,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        LOGGER.warning("Claude polish unavailable for %s: %s", platform, exc)
+        polished = call_anthropic(prompt, timeout=60, max_tokens=2200)
+    except Exception as exc:
+        LOGGER.warning("Anthropic polish unavailable for %s: %s", platform, exc)
         return content
 
-    if result.returncode != 0:
-        stderr_line = result.stderr.strip().splitlines()[0] if result.stderr.strip() else "unknown error"
-        LOGGER.warning("Claude polish failed for %s: %s", platform, stderr_line)
-        return content
-
-    polished = result.stdout.strip()
     polished = restore_missing_urls(content, polished, platform)
     if not validate_polished_content(content, polished, platform):
         LOGGER.warning("Claude polish output rejected for %s; using original draft", platform)

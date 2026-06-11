@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-import shutil
 import subprocess
 import sys
 
@@ -13,9 +12,11 @@ import discord
 from dotenv import load_dotenv
 
 try:
+    from .anthropic_client import call_anthropic, get_anthropic_api_key
     from .paths import ENV_PATH, REVIEW_DIR
     from .notify_dispatch import promote_pending_to_approved
 except ImportError:
+    from anthropic_client import call_anthropic, get_anthropic_api_key
     from paths import ENV_PATH, REVIEW_DIR
     from notify_dispatch import promote_pending_to_approved
 
@@ -55,9 +56,9 @@ def read_preview() -> tuple[str, pathlib.Path | None]:
 
 
 def apply_modification_with_claude(request: str) -> bool:
-    """Call Claude CLI to apply modification request to each platform file. Returns True if any file was updated."""
-    if shutil.which("claude") is None:
-        LOGGER.warning("claude CLI not found — skipping AI modification")
+    """Call the Anthropic API to apply modification requests."""
+    if not get_anthropic_api_key():
+        LOGGER.warning("ANTHROPIC_API_KEY is not configured — skipping AI modification")
         return False
 
     updated = False
@@ -74,20 +75,16 @@ def apply_modification_with_claude(request: str) -> bool:
             f"Current content:\n{current}"
         )
 
-        result = subprocess.run(
-            ["claude", "-p", prompt, "--output-format", "text", "--model", "sonnet", "--max-turns", "1"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            timeout=90,
-        )
+        try:
+            rewritten = call_anthropic(prompt, timeout=90, max_tokens=2200)
+        except Exception as exc:
+            LOGGER.warning("Claude modification failed for %s: %s", filename, exc)
+            continue
 
-        if result.returncode == 0 and result.stdout.strip():
-            file_path.write_text(result.stdout.strip(), encoding="utf-8")
+        if rewritten.strip():
+            file_path.write_text(rewritten.strip(), encoding="utf-8")
             updated = True
             LOGGER.info("Applied modification to %s", filename)
-        else:
-            LOGGER.warning("Claude modification failed for %s: %s", filename, result.stderr.strip()[:200])
 
     return updated
 
@@ -156,9 +153,7 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
                     **kwargs
                 )
             else:
-                await message.channel.send(
-                    "⚠️ Claude CLI 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。"
-                )
+                await message.channel.send("⚠️ Claude API 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。")
 
     return client
 

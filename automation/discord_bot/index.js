@@ -5,14 +5,15 @@
  * Workflow:
  *   1. On ready: if outbox/review/.pending exists, send blog.md preview and remove flag.
  *   2. Owner replies "ok" → touch .approved, run python pipeline --publish-approved.
- *   3. Owner replies anything else → call Claude CLI to modify platform files, send updated preview.
+ *   3. Owner replies anything else → call Anthropic API to modify platform files, send updated preview.
  */
 
 "use strict";
 
 const { Client, GatewayIntentBits } = require("discord.js");
-const { execFileSync, spawnSync } = require("child_process");
+const { spawnSync } = require("child_process");
 const fs = require("fs");
+const https = require("https");
 const path = require("path");
 const { HttpsProxyAgent } = require("https-proxy-agent");
 require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
@@ -30,6 +31,12 @@ const PLATFORM_FILES = {
   linkedin: "linkedin.txt",
   x:        "x.txt",
 };
+
+const PYTHON_CANDIDATES = [
+  process.env.PYTHON_EXECUTABLE,
+  "python3",
+  "python",
+].filter(Boolean);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -51,18 +58,100 @@ function readPreview() {
   return text.length > 1800 ? text.slice(0, 1800) + "\n…(truncated)" : text;
 }
 
-function which(cmd) {
-  try {
-    execFileSync("which", [cmd], { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
+function callAnthropic(prompt, timeoutMs = 90_000) {
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
   }
+
+  const payload = JSON.stringify({
+    model: process.env.ANTHROPIC_MODEL || "claude-haiku-4-5",
+    max_tokens: 2200,
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const agent = proxyUrl ? new HttpsProxyAgent(proxyUrl) : undefined;
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      "https://api.anthropic.com/v1/messages",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": apiKey,
+          "content-length": Buffer.byteLength(payload),
+        },
+        agent,
+      },
+      (res) => {
+        let body = "";
+        res.setEncoding("utf8");
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+        res.on("end", () => {
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(new Error(`Anthropic HTTP ${res.statusCode}: ${body.slice(0, 300)}`));
+            return;
+          }
+
+          try {
+            const parsed = JSON.parse(body);
+            const text = (parsed.content || [])
+              .filter((block) => block && block.type === "text" && block.text)
+              .map((block) => block.text.trim())
+              .join("\n")
+              .trim();
+            if (!text) {
+              reject(new Error("Anthropic returned no text content"));
+              return;
+            }
+            resolve(text);
+          } catch (error) {
+            reject(error);
+          }
+        });
+      }
+    );
+
+    req.setTimeout(timeoutMs, () => {
+      req.destroy(new Error("Anthropic request timed out"));
+    });
+    req.on("error", reject);
+    req.write(payload);
+    req.end();
+  });
 }
 
-function applyModificationWithClaude(request) {
-  if (!which("claude")) {
-    console.warn("claude CLI not found — skipping AI modification");
+function runPipelinePublishApproved() {
+  for (const command of PYTHON_CANDIDATES) {
+    const result = spawnSync(
+      command,
+      ["-m", "automation.pipeline", "--publish-approved"],
+      { encoding: "utf8", cwd: REPO_ROOT }
+    );
+
+    if (result.error && result.error.code === "ENOENT") {
+      continue;
+    }
+
+    return { command, result };
+  }
+
+  return {
+    command: PYTHON_CANDIDATES[0] || "python3",
+    result: {
+      status: null,
+      stderr: "No usable Python executable found. Set PYTHON_EXECUTABLE in .env.",
+    },
+  };
+}
+
+async function applyModificationWithClaude(request) {
+  if (!(process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY)) {
+    console.warn("ANTHROPIC_API_KEY is not configured — skipping AI modification");
     return false;
   }
 
@@ -78,18 +167,16 @@ function applyModificationWithClaude(request) {
       `Modification request: ${request}\n\n` +
       `Current content:\n${current}`;
 
-    const result = spawnSync(
-      "claude",
-      ["-p", prompt, "--output-format", "text", "--model", "sonnet", "--max-turns", "1"],
-      { encoding: "utf8", timeout: 90_000 }
-    );
-
-    if (result.status === 0 && result.stdout.trim()) {
-      fs.writeFileSync(filePath, result.stdout.trim(), "utf8");
+    try {
+      const rewritten = await callAnthropic(prompt, 90_000);
+      if (!rewritten.trim()) {
+        continue;
+      }
+      fs.writeFileSync(filePath, rewritten.trim(), "utf8");
       updated = true;
       console.info(`Applied modification to ${filename}`);
-    } else {
-      console.warn(`Claude modification failed for ${filename}: ${(result.stderr || "").slice(0, 200)}`);
+    } catch (error) {
+      console.warn(`Claude modification failed for ${filename}: ${String(error).slice(0, 300)}`);
     }
   }
   return updated;
@@ -148,27 +235,23 @@ client.on("messageCreate", async (message) => {
     await message.channel.send("✅ 已批准，正在发布...");
     console.info("Article approved — running pipeline --publish-approved");
 
-    const result = spawnSync(
-      "python3",
-      ["-m", "automation.pipeline", "--publish-approved"],
-      { encoding: "utf8", cwd: REPO_ROOT }
-    );
+    const { command, result } = runPipelinePublishApproved();
 
     if (result.status === 0) {
       await message.channel.send("🚀 发布成功");
-      console.info("publish-approved completed successfully");
+      console.info(`publish-approved completed successfully with ${command}`);
     } else {
-      const errTail = (result.stderr || "").slice(-200);
+      const errTail = (result.stderr || "unknown error").slice(-200);
       await message.channel.send(`⚠️ 发布失败：${errTail}`);
-      console.error("publish-approved failed:", result.stderr);
+      console.error(`publish-approved failed with ${command}:`, result.stderr);
     }
   } else {
     // Modification request
     fs.writeFileSync(MODIFICATION_REQUEST, message.content, "utf8");
-    await message.channel.send("✍️ 正在调用 Claude 应用修改，请稍候...");
+    await message.channel.send("✍️ 正在调用 Claude API 修改，请稍候...");
     console.info(`Applying modification: ${message.content.slice(0, 100)}`);
 
-    const updated = applyModificationWithClaude(message.content);
+    const updated = await applyModificationWithClaude(message.content);
 
     if (updated) {
       const preview = readPreview();
@@ -178,7 +261,7 @@ client.on("messageCreate", async (message) => {
       );
     } else {
       await message.channel.send(
-        "⚠️ Claude CLI 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。"
+        "⚠️ Claude API 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。"
       );
     }
   }

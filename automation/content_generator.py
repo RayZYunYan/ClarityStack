@@ -9,8 +9,6 @@ import logging
 import os
 import pathlib
 import re
-import shutil
-import subprocess
 import sys
 import textwrap
 import time
@@ -20,9 +18,11 @@ import requests
 from dotenv import load_dotenv
 
 try:
+    from .anthropic_client import call_anthropic, get_anthropic_api_key
     from .paths import ENV_PATH, PROMPT_TEMPLATE_PATH, REPO_ROOT, STYLE_GUIDE_PATH
     from .privacy_scanner import scan
 except ImportError:
+    from anthropic_client import call_anthropic, get_anthropic_api_key
     from paths import ENV_PATH, PROMPT_TEMPLATE_PATH, REPO_ROOT, STYLE_GUIDE_PATH
     from privacy_scanner import scan
 
@@ -452,30 +452,9 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
     ).strip()
 
 
-def run_claude_cli(prompt: str, timeout: int = 60) -> str:
-    """Call Claude Code CLI in one-shot print mode."""
-    result = subprocess.run(
-        [
-            "claude",
-            "-p",
-            prompt,
-            "--output-format",
-            "text",
-            "--model",
-            "sonnet",
-            "--max-turns",
-            "1",
-        ],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        timeout=timeout,
-        check=False,
-    )
-    if result.returncode != 0:
-        stderr_line = result.stderr.strip().splitlines()[0] if result.stderr.strip() else "unknown error"
-        raise RuntimeError(stderr_line)
-    return result.stdout.strip()
+def run_claude_api(prompt: str, timeout: int = 60) -> str:
+    """Call Anthropic's Messages API in one-shot mode."""
+    return call_anthropic(prompt, timeout=timeout, max_tokens=2200)
 
 
 def sanitize_blog_output(content: str) -> str:
@@ -571,18 +550,18 @@ def assemble_with_model(
     prefer_claude: bool,
     gemini_key: str | None,
 ) -> str:
-    """Assemble final prose through Claude CLI or Gemini."""
+    """Assemble final prose through Anthropic or Gemini."""
     prompt = build_assembly_prompt(structured_items, platform, style_guide)
     cleaned_prompt, prompt_findings = scan(prompt)
     if prompt_findings:
         LOGGER.warning("Assembly prompt triggered %d redaction(s)", len(prompt_findings))
 
-    if prefer_claude and shutil.which("claude"):
+    if prefer_claude and get_anthropic_api_key():
         try:
-            LOGGER.info("Assembling %s content with Claude Code CLI", platform)
-            return run_claude_cli(cleaned_prompt, timeout=60)
+            LOGGER.info("Assembling %s content with Anthropic API", platform)
+            return run_claude_api(cleaned_prompt, timeout=60)
         except Exception as exc:
-            LOGGER.warning("Claude assembly unavailable for %s: %s", platform, exc)
+            LOGGER.warning("Anthropic assembly unavailable for %s: %s", platform, exc)
 
     if gemini_key:
         try:

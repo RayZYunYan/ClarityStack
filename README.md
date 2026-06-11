@@ -48,8 +48,8 @@ python automation/content_generator.py --test-structured
 ## Generation flow
 
 1. Gemini extracts structured JSON for each news item using [automation/config/prompt_template.json](C:/个人小项目/ClarityStack/automation/config/prompt_template.json).
-2. Claude Code CLI assembles that structured data into LinkedIn, blog, and X prose when available.
-3. If Claude is unavailable, Gemini assembles from the same structured JSON.
+2. Anthropic's Messages API assembles that structured data into LinkedIn, blog, and X prose when `ANTHROPIC_API_KEY` is available.
+3. If Anthropic is unavailable, Gemini assembles from the same structured JSON.
 4. If Gemini rate-limits or returns malformed JSON, deterministic fallbacks fill the missing structure with readable summaries.
 
 ## Site / deployment
@@ -87,5 +87,9 @@ Both Cloudflare Pages and GitHub Actions now build from the repo root, and Jekyl
 - LinkedIn: manual draft mode by default
 - X: manual draft mode by default, zero-cost workflow
 - Claude assembly: controlled by `CLAUDE_POLISH_ENABLED`
+- Anthropic model override: `ANTHROPIC_MODEL`
 - Approval flow: `APPROVAL_MODE=cli` or `APPROVAL_MODE=dispatch`
 - Structured prompt template path: `PROMPT_TEMPLATE_PATH`
+- Python executable override for the Node review bot: `PYTHON_EXECUTABLE`
+
+By default the automation now uses `claude-haiku-4-5` for lower-cost writing tasks. During migration, the code accepts either `ANTHROPIC_API_KEY` or legacy `CLAUDE_API_KEY`, but `ANTHROPIC_API_KEY` is the preferred env var going forward.
