@@ -52,12 +52,6 @@ function parseFrontmatter(text) {
   return { meta, body: match[2].trim() };
 }
 
-<<<<<<< HEAD
-function callAnthropic(prompt, timeoutMs = 90_000) {
-  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
-=======
 function splitIntoChunks(text, maxLen = 1900) {
   const chunks = [];
   let remaining = text;
@@ -85,7 +79,13 @@ function which(cmd) {
     return true;
   } catch {
     return false;
->>>>>>> f8b3b9b5d1dc920d0cf0afee90ad4b891c5ae1ab
+  }
+}
+
+function callAnthropic(prompt, timeoutMs = 90_000) {
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 
   const payload = JSON.stringify({
@@ -317,12 +317,7 @@ client.on("messageCreate", async (message) => {
 
     if (result.status === 0) {
       await message.channel.send("🚀 发布成功");
-<<<<<<< HEAD
       console.info(`publish-approved completed successfully with ${command}`);
-=======
-      console.info("publish-approved completed successfully");
-      scheduleShutdown(3);
->>>>>>> f8b3b9b5d1dc920d0cf0afee90ad4b891c5ae1ab
     } else {
       const errTail = (result.stderr || "unknown error").slice(-200);
       await message.channel.send(`⚠️ 发布失败：${errTail}`);
@@ -334,18 +329,7 @@ client.on("messageCreate", async (message) => {
     await message.channel.send("✍️ 正在调用 Claude API 修改，请稍候...");
     console.info(`Applying modification: ${message.content.slice(0, 100)}`);
 
-<<<<<<< HEAD
     const updated = await applyModificationWithClaude(message.content);
-=======
-    let updated;
-    try {
-      updated = applyModificationWithClaude(message.content);
-    } catch (err) {
-      console.error(`Modification error: ${err.message}`);
-      await message.channel.send(`⚠️ 修改失败：${err.message}`);
-      return;
-    }
->>>>>>> f8b3b9b5d1dc920d0cf0afee90ad4b891c5ae1ab
 
     if (updated) {
       await message.channel.send("📝 修改完成，完整预览如下：");
