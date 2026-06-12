@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import pathlib
+import subprocess
 import pwd
 import sys
 from typing import Any
@@ -215,6 +216,10 @@ def main() -> int:
         pending_path = request_dispatch_approval(cleaned_map)
         print(f"Dispatch review bundle written to {pending_path}")
         LOGGER.info("Dispatch approval requested")
+        bot_script = os.path.join(os.path.dirname(__file__), "start_bot.sh")
+        if os.path.exists(bot_script):
+            subprocess.Popen(["bash", bot_script], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            LOGGER.info("Discord bot keepalive launched.")
         return 0
 
     if not request_cli_approval():

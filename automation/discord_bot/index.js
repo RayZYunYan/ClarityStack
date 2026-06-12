@@ -318,6 +318,7 @@ client.on("messageCreate", async (message) => {
     if (result.status === 0) {
       await message.channel.send("🚀 发布成功");
       console.info(`publish-approved completed successfully with ${command}`);
+      scheduleShutdown(3);
     } else {
       const errTail = (result.stderr || "unknown error").slice(-200);
       await message.channel.send(`⚠️ 发布失败：${errTail}`);
