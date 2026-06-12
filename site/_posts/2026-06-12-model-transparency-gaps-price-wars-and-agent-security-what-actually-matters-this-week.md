@@ -1,6 +1,6 @@
 ---
 title: "Model Transparency Gaps, Price Wars, and Agent Security — What Actually Matters This Week"
-date: 2025-01-15
+date: 2026-06-11
 tags: ["AI safety", "LLM pricing", "AI agents", "tooling"]
 ---
 
