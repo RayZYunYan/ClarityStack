@@ -128,7 +128,7 @@ def polish_content(content: str, platform: str) -> str:
 
     polished = polish_with_claude.polish(content, platform)
     if platform == "blog":
-        polished = content_generator.ensure_blog_disclaimer(polished)
+        polished = content_generator.finalize_blog(polished)
     return polished
 
 

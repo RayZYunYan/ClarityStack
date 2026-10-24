@@ -21,10 +21,12 @@ try:
     from .anthropic_client import call_anthropic, get_anthropic_api_key
     from .paths import ENV_PATH, PROMPT_TEMPLATE_PATH, REPO_ROOT, STYLE_GUIDE_PATH
     from .privacy_scanner import scan
+    from .timeutil import local_today
 except ImportError:
     from anthropic_client import call_anthropic, get_anthropic_api_key
     from paths import ENV_PATH, PROMPT_TEMPLATE_PATH, REPO_ROOT, STYLE_GUIDE_PATH
     from privacy_scanner import scan
+    from timeutil import local_today
 
 LOGGER = logging.getLogger(__name__)
 GEMINI_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
@@ -650,7 +652,7 @@ def build_linkedin_fallback(structured_items: list[dict[str, str]]) -> str:
 
 def build_blog_fallback(structured_items: list[dict[str, str]]) -> str:
     """Build a Markdown roundup from structured JSON."""
-    today = dt.date.today().isoformat()
+    today = local_today().isoformat()
     lines = [
         "---",
         'title: "ClarityStack AI Roundup"',
@@ -688,6 +690,25 @@ def ensure_blog_disclaimer(content: str) -> str:
     if BLOG_DISCLAIMER_MARKER in content:
         return content
     return content.rstrip() + BLOG_DISCLAIMER
+
+
+def set_blog_date(content: str, date: dt.date | None = None) -> str:
+    """Overwrite (or add) the frontmatter date; the model does not know today's date and invents one."""
+    match = re.match(r"---[ \t]*\n(.*?)\n---[ \t]*(?:\n|$)", content, re.S)
+    if not match:
+        return content
+    line = f"date: {(date or local_today()).isoformat()}"
+    front = match.group(1)
+    if re.search(r"^date:", front, re.M):
+        front = re.sub(r"^date:.*$", line, front, count=1, flags=re.M)
+    else:
+        front = f"{front}\n{line}"
+    return content[: match.start(1)] + front + content[match.end(1):]
+
+
+def finalize_blog(content: str) -> str:
+    """Apply the parts of a blog post that code owns, not the model: date and disclaimer."""
+    return ensure_blog_disclaimer(set_blog_date(content))
 
 
 def build_x_fallback(structured_items: list[dict[str, str]]) -> str:
@@ -764,7 +785,7 @@ def generate(
         content = build_deterministic_output(structured_items, platform)
 
     if platform == "blog":
-        content = ensure_blog_disclaimer(content)
+        content = finalize_blog(content)
     return content
 
 

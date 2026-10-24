@@ -18,8 +18,10 @@ from dotenv import load_dotenv
 
 try:
     from .paths import ENV_PATH, OUTBOX_DIR
+    from .timeutil import local_today
 except ImportError:
     from paths import ENV_PATH, OUTBOX_DIR
+    from timeutil import local_today
 
 HISTORY_PATH = OUTBOX_DIR / "publish_history.json"
 
@@ -44,11 +46,21 @@ def extract_title(markdown: str) -> str:
     return "claritystack-update"
 
 
+def extract_date(markdown: str) -> str:
+    """Return the frontmatter date (YYYY-MM-DD), or today's local date if absent or malformed."""
+    date_match = re.search(r"^date:\s*[\"']?(\d{4}-\d{2}-\d{2})", markdown, re.M)
+    if date_match:
+        try:
+            return dt.date.fromisoformat(date_match.group(1)).isoformat()
+        except ValueError:
+            pass
+    return local_today().isoformat()
+
+
 def build_filename(markdown: str) -> str:
-    """Build the Jekyll post filename."""
-    today = dt.date.today().isoformat()
+    """Build the Jekyll post filename from the same date the post displays."""
     title = extract_title(markdown)
-    return f"{today}-{slugify(title)}.md"
+    return f"{extract_date(markdown)}-{slugify(title)}.md"
 
 
 def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:

@@ -129,6 +129,7 @@ Both Cloudflare Pages and GitHub Actions build from the repo root; Jekyll picks 
 | `DISCORD_OWNER_ID` | Only this user's approval commands are accepted |
 | `LINKEDIN_ACCESS_TOKEN` | LinkedIn publishing (manual draft mode by default) |
 | `APPROVAL_MODE` | `dispatch` (Discord bot) or `cli` |
+| `LOCAL_TIMEZONE` | Timezone for blog post dates and filenames (default `America/Los_Angeles`) |
 | `PROMPT_TEMPLATE_PATH` | Structured prompt template path |
 | `PYTHON_EXECUTABLE` | Python executable override for the Node review bot |
 
