@@ -1,11 +1,19 @@
 {
   "patterns": [
     {
-      "regex": "sk-[a-zA-Z0-9]{20,}",
+      "regex": "\\bsk-ant-[A-Za-z0-9_-]{20,}",
+      "label": "Anthropic API key"
+    },
+    {
+      "regex": "\\bsk-[A-Za-z0-9_-]{20,}",
       "label": "API key"
     },
     {
-      "regex": "ghp_[a-zA-Z0-9]{36}",
+      "regex": "\\bgithub_pat_[A-Za-z0-9_]{22,}",
+      "label": "GitHub fine-grained token"
+    },
+    {
+      "regex": "\\bgh[oprsu]_[A-Za-z0-9]{36}",
       "label": "GitHub token"
     },
     {
@@ -15,6 +23,14 @@
     {
       "regex": "/Users/[a-zA-Z0-9._-]+",
       "label": "Local path"
+    },
+    {
+      "regex": "[A-Za-z]:\\\\{1,2}Users\\\\{1,2}[^\\\\\\s\"]+",
+      "label": "Local Windows path"
+    },
+    {
+      "regex": "/home/[A-Za-z0-9._-]+",
+      "label": "Local Linux path"
     },
     {
       "regex": "AIza[a-zA-Z0-9_-]{35}",

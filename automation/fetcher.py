@@ -7,6 +7,7 @@ import datetime as dt
 import html
 import json
 import logging
+import os
 import re
 import sys
 import urllib.parse
@@ -195,13 +196,18 @@ def fetch_hacker_news(limit: int = 5, session: requests.Session | None = None) -
     items: list[dict[str, Any]] = []
 
     for story_id in story_ids:
-        item_response = client.get(
-            f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json",
-            headers={"User-Agent": USER_AGENT},
-            timeout=20,
-        )
-        item_response.raise_for_status()
-        story = item_response.json() or {}
+        # One bad item should not drop the whole Hacker News source.
+        try:
+            item_response = client.get(
+                f"https://hacker-news.firebaseio.com/v0/item/{story_id}.json",
+                headers={"User-Agent": USER_AGENT},
+                timeout=20,
+            )
+            item_response.raise_for_status()
+            story = item_response.json() or {}
+        except (requests.RequestException, ValueError) as exc:
+            LOGGER.warning("Skipping Hacker News item %s: %s", story_id, exc)
+            continue
         if story.get("type") != "story":
             continue
         title = normalize_whitespace(story.get("title", ""))
@@ -251,12 +257,57 @@ def extract_url_slug(url: str) -> str:
     return url
 
 
+def fetch_remote_post_texts(cutoff: dt.date) -> list[str]:
+    """Return the text of posts in the GitHub repo's site/_posts/ dated on or after *cutoff*.
+
+    Posts are published through the GitHub API, so the local checkout may not have them
+    until it is pulled. Uses the same env vars as publish_github; returns [] without a token.
+    """
+    token = os.getenv("GITHUB_TOKEN")
+    if not token:
+        return []
+    repository = os.getenv("GITHUB_REPOSITORY", "RayZYunYan/ClarityStack")
+    branch = os.getenv("GITHUB_BRANCH", "main")
+    base_url = f"https://api.github.com/repos/{repository}/contents/site/_posts"
+    headers = {"Authorization": f"Bearer {token}", "User-Agent": USER_AGENT}
+
+    listing = requests.get(
+        base_url,
+        params={"ref": branch},
+        headers=headers | {"Accept": "application/vnd.github+json"},
+        timeout=20,
+    )
+    listing.raise_for_status()
+
+    texts: list[str] = []
+    for entry in listing.json():
+        name = entry.get("name", "")
+        date_match = re.match(r"(\d{4}-\d{2}-\d{2})", name)
+        if not date_match or not name.endswith(".md"):
+            continue
+        try:
+            if dt.date.fromisoformat(date_match.group(1)) < cutoff:
+                continue
+        except ValueError:
+            continue
+        response = requests.get(
+            f"{base_url}/{name}",
+            params={"ref": branch},
+            headers=headers | {"Accept": "application/vnd.github.raw+json"},
+            timeout=20,
+        )
+        response.raise_for_status()
+        texts.append(response.text)
+    return texts
+
+
 def load_recent_slugs(days: int = 14) -> set[str]:
     """Return URL slugs seen in published content over the past *days* days.
 
-    Reads from two sources:
-    - outbox/publish_history.json  (authoritative; written after each real publish)
-    - site/_posts/*.md             (fallback for manually committed posts)
+    Reads from three sources (results are combined):
+    - outbox/publish_history.json  (written after each real publish on this machine)
+    - site/_posts/ on GitHub       (when GITHUB_TOKEN is set; covers other machines/sandboxes)
+    - site/_posts/*.md locally     (fallback for manually committed posts or no token)
     """
     cutoff = dt.date.today() - dt.timedelta(days=days)
     url_pattern = re.compile(r"https?://\S+")
@@ -296,6 +347,16 @@ def load_recent_slugs(days: int = 14) -> set[str]:
             for url in url_pattern.findall(text):
                 seen.add(extract_url_slug(url.rstrip(").,\"'`>")))
 
+    try:
+        remote_texts = fetch_remote_post_texts(cutoff)
+        if remote_texts:
+            LOGGER.info("History filter: read %d recent post(s) from GitHub", len(remote_texts))
+        for text in remote_texts:
+            for url in url_pattern.findall(text):
+                seen.add(extract_url_slug(url.rstrip(").,\"'`>")))
+    except Exception as exc:
+        LOGGER.warning("Could not read remote posts from GitHub; using local history only: %s", exc)
+
     if seen:
         LOGGER.info("History filter: %d slug(s) seen in the past %d days", len(seen), days)
     return seen
@@ -328,8 +389,8 @@ def deduplicate_items(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return list(deduped.values())
 
 
-def fetch_news(limit: int = 10) -> list[dict[str, Any]]:
-    """Fetch and rank AI-related items across all configured sources."""
+def fetch_news(limit: int = 5) -> list[dict[str, Any]]:
+    """Fetch and rank AI-related items across all configured sources (returns 1-5 items)."""
     sources = [
         ("arxiv",      lambda s: fetch_arxiv(limit=5, session=s)),
         ("github",     lambda s: fetch_github_trending(limit=5, session=s)),
@@ -355,13 +416,13 @@ def fetch_news(limit: int = 10) -> list[dict[str, Any]]:
         LOGGER.warning("History filter removed all candidates; using unfiltered pool")
 
     ranked = sorted(pool, key=lambda item: item["relevance_score"], reverse=True)
-    return ranked[: max(5, min(limit, 10))]
+    return ranked[: max(1, min(limit, 5))]
 
 
 def build_parser() -> argparse.ArgumentParser:
     """Create the CLI argument parser."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--limit", type=int, default=8, help="Maximum number of items to emit.")
+    parser.add_argument("--limit", type=int, default=5, help="Maximum number of items to emit (1-5).")
     parser.add_argument("--pretty", action="store_true", help="Pretty-print JSON output.")
     return parser
 

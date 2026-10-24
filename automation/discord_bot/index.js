@@ -5,7 +5,8 @@
  * Workflow:
  *   1. On ready: if outbox/review/.pending exists, send blog.md preview and remove flag.
  *   2. Owner replies "ok" → touch .approved, run python pipeline --publish-approved.
- *   3. Owner replies anything else → call Anthropic API to modify platform files, send updated preview.
+ *   3. Owner replies "reject" / "skip" / "cancel" (or 拒绝 / 跳过 / 取消) → discard the review bundle.
+ *   4. Owner replies anything else → call Anthropic API to modify platform files, send updated preview.
  */
 
 "use strict";
@@ -22,8 +23,10 @@ require("dotenv").config({ path: path.resolve(__dirname, "../../.env") });
 const REPO_ROOT    = path.resolve(__dirname, "../..");
 const REVIEW_DIR   = path.join(REPO_ROOT, "outbox", "review");
 const PENDING_DIR  = path.join(REVIEW_DIR, "pending");
+const APPROVED_DIR = path.join(REVIEW_DIR, "approved");
 const PENDING_FLAG    = path.join(REVIEW_DIR, ".pending");
 const NO_CONTENT_FLAG = path.join(REVIEW_DIR, ".no_content");
+const ERROR_FLAG      = path.join(REVIEW_DIR, ".error");
 const APPROVED_FLAG   = path.join(REVIEW_DIR, ".approved");
 const MODIFICATION_REQUEST = path.join(REVIEW_DIR, "modification_request.txt");
 
@@ -32,6 +35,10 @@ const PLATFORM_FILES = {
   linkedin: "linkedin.txt",
   x:        "x.txt",
 };
+
+// Whole-message matches only, so "reject the second paragraph" is still a modification request.
+const APPROVE_COMMANDS = new Set(["ok", "approve"]);
+const DISCARD_COMMANDS = new Set(["reject", "skip", "cancel", "拒绝", "跳过", "取消"]);
 
 const PYTHON_CANDIDATES = [
   process.env.PYTHON_EXECUTABLE,
@@ -52,12 +59,6 @@ function parseFrontmatter(text) {
   return { meta, body: match[2].trim() };
 }
 
-<<<<<<< HEAD
-function callAnthropic(prompt, timeoutMs = 90_000) {
-  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY is not configured");
-=======
 function splitIntoChunks(text, maxLen = 1900) {
   const chunks = [];
   let remaining = text;
@@ -78,14 +79,24 @@ function readBlogFile() {
   return fs.readFileSync(blog, "utf8");
 }
 
+// Mirrors notify_dispatch.cleanup_review_bundle().
+function discardReviewBundle() {
+  for (const file of [path.join(REVIEW_DIR, "pending.md"), PENDING_FLAG, MODIFICATION_REQUEST]) {
+    if (fs.existsSync(file)) fs.unlinkSync(file);
+  }
+  for (const dir of [PENDING_DIR, APPROVED_DIR]) {
+    if (!fs.existsSync(dir)) continue;
+    for (const name of fs.readdirSync(dir)) {
+      const file = path.join(dir, name);
+      if (fs.statSync(file).isFile()) fs.unlinkSync(file);
+    }
+  }
+}
 
-function which(cmd) {
-  try {
-    execFileSync("which", [cmd], { stdio: "pipe" });
-    return true;
-  } catch {
-    return false;
->>>>>>> f8b3b9b5d1dc920d0cf0afee90ad4b891c5ae1ab
+function callAnthropic(prompt, timeoutMs = 90_000) {
+  const apiKey = process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY is not configured");
   }
 
   const payload = JSON.stringify({
@@ -248,6 +259,17 @@ async function checkNoContent() {
   scheduleShutdown(3);
 }
 
+async function checkError() {
+  if (!fs.existsSync(ERROR_FLAG)) return;
+  const channel = client.channels.cache.get(channelId);
+  if (!channel) return;
+  const detail = fs.readFileSync(ERROR_FLAG, "utf8").trim().slice(0, 1500) || "（无详细信息）";
+  await channel.send(`⚠️ 管道已中止，本次未生成稿件：\n\`\`\`\n${detail}\n\`\`\``);
+  fs.unlinkSync(ERROR_FLAG);
+  console.info("Sent pipeline error notification");
+  scheduleShutdown(3);
+}
+
 async function checkPending() {
   if (!fs.existsSync(PENDING_FLAG)) return;
   const channel = client.channels.cache.get(channelId);
@@ -285,7 +307,7 @@ async function checkPending() {
   // 3. 附上原始文件
   const blogPath = path.join(PENDING_DIR, "blog.md");
   await channel.send({
-    content: "---\n回复 `ok` 批准发布，或直接发送修改需求。",
+    content: "---\n回复 `ok` 批准发布，回复 `拒绝` 丢弃本次稿件，或直接发送修改需求。",
     files: [{ attachment: blogPath, name: `blog-${date}.md` }],
   });
 
@@ -295,9 +317,10 @@ async function checkPending() {
 
 client.once("ready", async () => {
   console.info(`Discord bot ready as ${client.user.tag}`);
+  await checkError();
   await checkNoContent();
   await checkPending();
-  setInterval(async () => { await checkNoContent(); await checkPending(); }, 30_000);
+  setInterval(async () => { await checkError(); await checkNoContent(); await checkPending(); }, 30_000);
 });
 
 client.on("messageCreate", async (message) => {
@@ -307,7 +330,12 @@ client.on("messageCreate", async (message) => {
 
   const text = message.content.trim().toLowerCase();
 
-  if (text === "ok") {
+  if (DISCARD_COMMANDS.has(text)) {
+    discardReviewBundle();
+    await message.channel.send("🗑️ 已丢弃本次稿件，不会发布。");
+    console.info("Review bundle discarded by owner");
+    scheduleShutdown(3);
+  } else if (APPROVE_COMMANDS.has(text)) {
     // Approve and publish
     fs.closeSync(fs.openSync(APPROVED_FLAG, "a")); // touch
     await message.channel.send("✅ 已批准，正在发布...");
@@ -317,15 +345,11 @@ client.on("messageCreate", async (message) => {
 
     if (result.status === 0) {
       await message.channel.send("🚀 发布成功");
-<<<<<<< HEAD
       console.info(`publish-approved completed successfully with ${command}`);
-=======
-      console.info("publish-approved completed successfully");
       scheduleShutdown(3);
->>>>>>> f8b3b9b5d1dc920d0cf0afee90ad4b891c5ae1ab
     } else {
       const errTail = (result.stderr || "unknown error").slice(-200);
-      await message.channel.send(`⚠️ 发布失败：${errTail}`);
+      await message.channel.send(`⚠️ 发布失败：${errTail}\n未成功的平台稿件已保留，回复 \`ok\` 重试。`);
       console.error(`publish-approved failed with ${command}:`, result.stderr);
     }
   } else {
@@ -334,18 +358,7 @@ client.on("messageCreate", async (message) => {
     await message.channel.send("✍️ 正在调用 Claude API 修改，请稍候...");
     console.info(`Applying modification: ${message.content.slice(0, 100)}`);
 
-<<<<<<< HEAD
     const updated = await applyModificationWithClaude(message.content);
-=======
-    let updated;
-    try {
-      updated = applyModificationWithClaude(message.content);
-    } catch (err) {
-      console.error(`Modification error: ${err.message}`);
-      await message.channel.send(`⚠️ 修改失败：${err.message}`);
-      return;
-    }
->>>>>>> f8b3b9b5d1dc920d0cf0afee90ad4b891c5ae1ab
 
     if (updated) {
       await message.channel.send("📝 修改完成，完整预览如下：");
@@ -369,7 +382,7 @@ client.on("messageCreate", async (message) => {
         }
       }
 
-      await message.channel.send("---\n回复 `ok` 发布，或继续发送修改需求。");
+      await message.channel.send("---\n回复 `ok` 发布，回复 `拒绝` 丢弃，或继续发送修改需求。");
     } else {
       await message.channel.send(
         "⚠️ Claude API 不可用，修改需求已保存到文件。请手动修改后回复 `ok`。"

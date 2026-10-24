@@ -118,12 +118,17 @@ def load_review_bundle(state: str = "approved", output_dir: str | pathlib.Path =
     if not base_dir.exists():
         raise FileNotFoundError(f"Review bundle not found: {base_dir}")
 
+    # A platform file may be missing because it was already published in an
+    # earlier partial run (see remove_platform_files); skip it rather than fail.
     content_map: dict[str, str] = {}
     for platform, filename in PLATFORM_FILES.items():
         file_path = base_dir / filename
         if not file_path.exists():
-            raise FileNotFoundError(f"Missing review content for {platform}: {file_path}")
+            LOGGER.info("No %s content in %s bundle (already published or absent); skipping", platform, state)
+            continue
         content_map[platform] = file_path.read_text(encoding="utf-8")
+    if not content_map:
+        raise FileNotFoundError(f"Review bundle is empty: {base_dir}")
     return content_map
 
 
@@ -143,6 +148,27 @@ def notify_no_content(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
     base.mkdir(parents=True, exist_ok=True)
     (base / ".no_content").touch()
     LOGGER.info("Wrote .no_content flag for Discord bot notification")
+    _ensure_bot_running()
+
+
+def notify_error(message: str, output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
+    """Write an error flag so the Discord bot can tell the owner the run was aborted."""
+    base = pathlib.Path(output_dir)
+    base.mkdir(parents=True, exist_ok=True)
+    (base / ".error").write_text(message, encoding="utf-8")
+    LOGGER.info("Wrote .error flag for Discord bot notification")
+    _ensure_bot_running()
+
+
+def remove_platform_files(platforms: list[str], output_dir: str | pathlib.Path = REVIEW_DIR) -> None:
+    """Delete the pending/approved files of platforms that have been published."""
+    base = pathlib.Path(output_dir)
+    for platform in platforms:
+        filename = PLATFORM_FILES[platform]
+        for state in ("pending", "approved"):
+            path = base / state / filename
+            if path.exists():
+                path.unlink()
 
 
 def cleanup_review_bundle(output_dir: str | pathlib.Path = REVIEW_DIR) -> None:

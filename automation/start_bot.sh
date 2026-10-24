@@ -48,9 +48,10 @@ while true; do
     EXIT_CODE=$?
     rm -f "$PIDFILE"
 
-    # If bot exited cleanly and there is no pending review, stop the keepalive.
-    if [ ! -f "/sandbox/ClarityStack/outbox/review/.pending" ]; then
-        echo "[$(date)] Bot exited (code $EXIT_CODE) and no .pending flag — keepalive done." >> "$LOGFILE"
+    # If no review or notification is still waiting to be delivered, stop the keepalive.
+    REVIEW_DIR=/sandbox/ClarityStack/outbox/review
+    if [ ! -f "$REVIEW_DIR/.pending" ] && [ ! -f "$REVIEW_DIR/.error" ] && [ ! -f "$REVIEW_DIR/.no_content" ]; then
+        echo "[$(date)] Bot exited (code $EXIT_CODE) and no .pending/.error/.no_content flag — keepalive done." >> "$LOGFILE"
         exit 0
     fi
 

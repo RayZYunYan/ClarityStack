@@ -11,7 +11,7 @@ When a new file appears at `outbox/review/pending.md`:
    - update the relevant files inside `outbox/review/pending/`
    - regenerate `outbox/review/pending.md` so the user can review the latest version
    - ask again for approval
-5. If the user replies `skip` or `cancel`:
+5. If the user replies `reject`, `skip`, or `cancel` (or `拒绝`, `跳过`, `取消`):
    - delete `outbox/review/pending.md`
    - clear files inside `outbox/review/pending/`
    - log that the publish was skipped

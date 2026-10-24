@@ -1,18 +1,19 @@
 #!/bin/bash
-# ClarityStack bot watchdog — only starts the bot if .pending exists and bot is not running.
+# ClarityStack bot watchdog — only starts the bot if a review or notification flag
+# (.pending / .error / .no_content) exists and the bot is not running.
 # Called by Claude Code durable cron every 5 minutes (断电/重启补救).
 
 PIDFILE=/sandbox/ClarityStack/logs/discord_bot.pid
 LOGFILE=/sandbox/ClarityStack/logs/discord_bot.log
-PENDING_FLAG=/sandbox/ClarityStack/outbox/review/.pending
+REVIEW_DIR=/sandbox/ClarityStack/outbox/review
 START_SCRIPT=/sandbox/ClarityStack/automation/start_bot.sh
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [watchdog] $*" >> "$LOGFILE"
 }
 
-# No pending review — nothing to do.
-if [ ! -f "$PENDING_FLAG" ]; then
+# Nothing waiting for the bot — nothing to do.
+if [ ! -f "$REVIEW_DIR/.pending" ] && [ ! -f "$REVIEW_DIR/.error" ] && [ ! -f "$REVIEW_DIR/.no_content" ]; then
     exit 0
 fi
 

@@ -8,7 +8,6 @@ import json
 import logging
 import os
 import pathlib
-import pwd
 import sys
 from typing import Any
 
@@ -95,16 +94,42 @@ def redact_generated_content(content_map: dict[str, str]) -> tuple[dict[str, str
     return cleaned_map, findings_map
 
 
+# Content platform -> (result key, publisher module).
+PUBLISHERS = {
+    "blog": ("github", publish_github),
+    "linkedin": ("linkedin", publish_linkedin),
+    "x": ("x", publish_x),
+}
+
+
 def publish_all(content_map: dict[str, str]) -> dict[str, dict[str, Any]]:
-    """Publish the approved content to all platforms."""
-    github_result = publish_github.publish(content_map["blog"], publish_github.load_credentials())
-    linkedin_result = publish_linkedin.publish(content_map["linkedin"], publish_linkedin.load_credentials())
-    x_result = publish_x.publish(content_map["x"], publish_x.load_credentials())
-    return {
-        "github": github_result,
-        "linkedin": linkedin_result,
-        "x": x_result,
-    }
+    """Publish the given platforms independently so one failure does not block the others."""
+    results: dict[str, dict[str, Any]] = {}
+    for platform, (result_key, publisher) in PUBLISHERS.items():
+        if platform not in content_map:
+            continue
+        try:
+            results[result_key] = publisher.publish(content_map[platform], publisher.load_credentials())
+        except Exception as exc:
+            LOGGER.error("Publishing %s failed: %s", result_key, exc)
+            results[result_key] = {"success": False, "url": "", "error": str(exc)}
+    return results
+
+
+def polish_content(content: str, platform: str) -> str:
+    """Polish one platform's content, re-applying the fixed parts the model must not own."""
+    if platform == "linkedin":
+        # Polish without the footer (the prompt says it is appended separately), then
+        # strip any Markdown the model reintroduced and append the footer exactly once.
+        cta = content_generator.LINKEDIN_CTA
+        base = content[: -len(cta)] if content.endswith(cta) else content
+        polished = polish_with_claude.polish(base, platform)
+        return content_generator.strip_markdown_for_linkedin(polished).rstrip() + cta
+
+    polished = polish_with_claude.polish(content, platform)
+    if platform == "blog":
+        polished = content_generator.ensure_blog_disclaimer(polished)
+    return polished
 
 
 def request_dispatch_approval(content_map: dict[str, str]) -> str:
@@ -124,14 +149,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Publish the already approved content from outbox/review/approved/.",
     )
     parser.add_argument("--dry-run", action="store_true", help="Generate previews without publishing.")
-    parser.add_argument("--limit", type=int, default=8, help="Maximum number of fetched items to use.")
+    parser.add_argument("--limit", type=int, default=5, help="Maximum number of fetched items to use (1-5).")
     return parser
 
 
 def _drop_root(username: str = "sandbox") -> None:
     """If running as root, drop privileges to the given user."""
-    if os.getuid() != 0:
+    # pwd and os.getuid exist only on Unix; on Windows there is nothing to drop.
+    if not hasattr(os, "getuid") or os.getuid() != 0:
         return
+    import pwd
+
     try:
         pw = pwd.getpwnam(username)
         os.setgid(pw.pw_gid)
@@ -161,19 +189,32 @@ def main() -> int:
             return 0
 
         results = publish_all(approved_content)
-        notify_dispatch.cleanup_review_bundle()
         LOGGER.info("Publish-approved results: %s", json.dumps(results, ensure_ascii=False))
         print(json.dumps({"results": results, "log": str(log_path)}, indent=2, ensure_ascii=False))
-        return 0 if all(result["success"] for result in results.values()) else 1
+
+        # Drop only what was published; failed platforms stay in the bundle so a retry
+        # of --publish-approved publishes just those.
+        succeeded = [p for p, (key, _) in PUBLISHERS.items() if results.get(key, {}).get("success")]
+        failed = [key for key, result in results.items() if not result.get("success")]
+        notify_dispatch.remove_platform_files(succeeded)
+        if failed:
+            LOGGER.error("Publish failed for: %s. Their review files were kept; rerun --publish-approved to retry.", ", ".join(failed))
+            return 1
+        notify_dispatch.cleanup_review_bundle()
+        return 0
 
     LOGGER.info("Pipeline started. Mode: %s", "auto" if args.auto else "manual" if args.manual else "default")
 
     news_items = fetcher.fetch_news(limit=args.limit)
     LOGGER.info("Fetched %d news item(s)", len(news_items))
 
+    # The Discord bot exists only for dispatch approval; dry runs never notify it.
+    notify_bot = approval_mode == "dispatch" and not args.dry_run
+
     if not news_items:
         LOGGER.warning("No news items fetched — all sources unavailable or filtered. Exiting without publishing.")
-        notify_dispatch.notify_no_content()
+        if notify_bot:
+            notify_dispatch.notify_no_content()
         print("Nothing to publish today: no news items were fetched.")
         return 0
 
@@ -182,21 +223,28 @@ def main() -> int:
     if source_findings:
         LOGGER.warning("Fetched payload triggered %d privacy redaction(s)", len(source_findings))
 
-    LOGGER.info("Extracting structured JSON for fetched items")
-    structured_items = content_generator.structure_news_items(news_items, limit=5)
-    LOGGER.info("Structured extraction completed for %d item(s)", len(structured_items))
+    try:
+        LOGGER.info("Extracting structured JSON for fetched items")
+        structured_items = content_generator.structure_news_items(news_items, limit=5)
+        LOGGER.info("Structured extraction completed for %d item(s)", len(structured_items))
 
-    content_map = {
-        "linkedin": content_generator.generate(news_items, "linkedin", structured_items=structured_items),
-        "blog": content_generator.generate(news_items, "blog", structured_items=structured_items),
-        "x": content_generator.generate(news_items, "x", structured_items=structured_items),
-    }
+        content_map = {
+            "linkedin": content_generator.generate(news_items, "linkedin", structured_items=structured_items),
+            "blog": content_generator.generate(news_items, "blog", structured_items=structured_items),
+            "x": content_generator.generate(news_items, "x", structured_items=structured_items),
+        }
+    except content_generator.GeminiAuthError as exc:
+        LOGGER.error("Pipeline aborted: %s", exc)
+        if notify_bot:
+            notify_dispatch.notify_error(f"{exc}\nLog: {log_path}")
+        print(f"Pipeline aborted: {exc}")
+        return 1
     LOGGER.info("Structured assembly completed for %d platform(s)", len(content_map))
 
     if os.getenv("CLAUDE_POLISH_ENABLED", "false").strip().lower() == "true":
         LOGGER.info("Claude polish enabled — polishing generated content")
         content_map = {
-            platform: polish_with_claude.polish(content, platform)
+            platform: polish_content(content, platform)
             for platform, content in content_map.items()
         }
         LOGGER.info("Claude polish completed")

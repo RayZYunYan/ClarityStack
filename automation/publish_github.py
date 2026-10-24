@@ -59,20 +59,26 @@ def publish(content: str, credentials: dict[str, Any]) -> dict[str, Any]:
     posts_path = credentials.get("posts_path", "site/_posts")
     filename = credentials.get("filename") or build_filename(content)
     path = f"{posts_path}/{filename}"
+    url = f"https://api.github.com/repos/{repository}/contents/{path}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json",
+    }
+    body = {
+        "message": f"Publish blog post {filename}",
+        "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+        "branch": branch,
+    }
 
-    response = requests.put(
-        f"https://api.github.com/repos/{repository}/contents/{path}",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/vnd.github+json",
-        },
-        json={
-            "message": f"Publish blog post {filename}",
-            "content": base64.b64encode(content.encode("utf-8")).decode("ascii"),
-            "branch": branch,
-        },
-        timeout=30,
-    )
+    # Same date + title means a rerun of today's post: overwrite it. The Contents API
+    # requires the existing file's sha for that, otherwise it answers 422.
+    existing = requests.get(url, headers=headers, params={"ref": branch}, timeout=30)
+    if existing.status_code == 200:
+        body["sha"] = existing.json().get("sha")
+        body["message"] = f"Update blog post {filename}"
+        LOGGER.info("Post %s already exists; updating it in place", filename)
+
+    response = requests.put(url, headers=headers, json=body, timeout=30)
 
     if response.status_code not in {200, 201}:
         error = response.text

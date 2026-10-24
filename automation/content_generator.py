@@ -27,9 +27,33 @@ except ImportError:
     from privacy_scanner import scan
 
 LOGGER = logging.getLogger(__name__)
-GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent"
+GEMINI_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 URL_PATTERN = re.compile(r"https?://\S+")
 LINKEDIN_CTA = "\n\nMore AI signals for builders at ClarityStack → https://claritystack.rayzhang418.workers.dev/"
+BLOG_DISCLAIMER_MARKER = "The views expressed in this article are solely my own"
+BLOG_DISCLAIMER = (
+    "\n\n---\n\n"
+    "*The views expressed in this article are solely my own and based on publicly available information. "
+    "Nothing here constitutes investment, business, or technical advice. "
+    "If I've gotten something wrong, I'd welcome the correction.*\n\n"
+    "---"
+)
+
+
+class GeminiAuthError(RuntimeError):
+    """Gemini rejected the API key; the run should abort instead of falling back."""
+
+
+def is_gemini_auth_error(exc: requests.HTTPError) -> bool:
+    """Return True when an HTTP error means the Gemini key is invalid or not permitted."""
+    response = exc.response
+    if response is None:
+        return False
+    if response.status_code in {401, 403}:
+        return True
+    # Gemini reports an invalid key as HTTP 400 with reason API_KEY_INVALID.
+    return response.status_code == 400 and "API_KEY_INVALID" in (response.text or "")
 DEFAULT_SAMPLE_ITEMS = [
     {
         "title": "AMD launches Lemonade, an open-source local LLM server for GPUs and NPUs",
@@ -306,12 +330,18 @@ def get_gemini_api_key() -> str | None:
     return os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY") or os.getenv("GOOGL_API_KEY")
 
 
+def get_gemini_endpoint() -> str:
+    """Build the Gemini endpoint from GEMINI_MODEL (read at call time, after .env is loaded)."""
+    model = os.getenv("GEMINI_MODEL", DEFAULT_GEMINI_MODEL).strip() or DEFAULT_GEMINI_MODEL
+    return GEMINI_ENDPOINT_TEMPLATE.format(model=model)
+
+
 def call_gemini(prompt: str, api_key: str) -> str:
     """Submit a prompt to the Gemini generateContent API."""
     response = None
     for attempt in range(1, 4):
         response = requests.post(
-            GEMINI_ENDPOINT,
+            get_gemini_endpoint(),
             headers={
                 "x-goog-api-key": api_key,
                 "Content-Type": "application/json",
@@ -358,10 +388,11 @@ def extract_structured_item(item: dict[str, Any], template: dict[str, Any], api_
             LOGGER.warning("Gemini structured extraction returned invalid JSON on attempt %d: %s", attempt, exc)
         except requests.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code in {429, 503}:
-                LOGGER.warning("Gemini extraction unavailable (HTTP %s); using minimal structured fallback", status_code)
-                return build_minimal_structured_item(item, template)
-            raise
+            if is_gemini_auth_error(exc):
+                LOGGER.error("Gemini rejected the API key (HTTP %s); aborting run", status_code)
+                raise GeminiAuthError(f"Gemini API key rejected (HTTP {status_code}). Check GEMINI_API_KEY.") from exc
+            LOGGER.warning("Gemini extraction unavailable (HTTP %s); using minimal structured fallback", status_code)
+            return build_minimal_structured_item(item, template)
         except Exception as exc:
             LOGGER.warning("Gemini structured extraction failed on attempt %d: %s", attempt, exc)
 
@@ -407,10 +438,10 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
             - Include frontmatter with title, date, and tags
             - Do NOT repeat the title as an H1 heading after the frontmatter — start directly with the first paragraph
             - Give each item its own section with an H2 heading
-            - Write in first person and sound like a builder talking to peers
-            - In each section, move through What, So What, and My Take naturally
-            - Use relevance_to_builders to sharpen the So What layer
-            - End each section with a concrete next step or a clear dismissal
+            - Write in first person as a curious, technically-minded reader thinking out loud
+            - In each section, move through What, Where It Could Apply, and What Could Come Next naturally
+            - Use application and relevance_to_builders to make Where It Could Apply specific
+            - End each section with a concrete possibility worth watching, or say plainly who can skip it
             - Weave counterpoints in naturally instead of labeling them mechanically
             - Keep source links inline in paragraphs and end with a clean References section
             - Format all references as Markdown links, never raw URLs
@@ -444,7 +475,7 @@ def build_assembly_prompt(structured_items: list[dict[str, str]], platform: str,
         {items_json}
 
         Use the structured data as raw material. Write naturally.
-        Write like a developer who builds AI systems, not a journalist.
+        Write like a curious, technically-minded person connecting new developments to real-world problems, not a journalist.
         Use first person freely.
         Give a specific technical judgment for each topic.
         If something is overhyped, narrow, or not useful, say so directly.
@@ -585,9 +616,13 @@ def assemble_with_model(
             return call_gemini(cleaned_prompt, gemini_key)
         except requests.HTTPError as exc:
             status_code = exc.response.status_code if exc.response is not None else None
-            if status_code != 429:
-                raise
-            LOGGER.warning("Gemini assembly remained rate limited for %s; falling back deterministically", platform)
+            if is_gemini_auth_error(exc):
+                LOGGER.error("Gemini rejected the API key (HTTP %s); aborting run", status_code)
+                raise GeminiAuthError(f"Gemini API key rejected (HTTP {status_code}). Check GEMINI_API_KEY.") from exc
+            LOGGER.warning("Gemini assembly failed for %s (HTTP %s); falling back deterministically", platform, status_code)
+        except (requests.RequestException, RuntimeError) as exc:
+            # Timeouts, connection errors, and empty candidate lists are transient; use the deterministic fallback.
+            LOGGER.warning("Gemini assembly unavailable for %s: %s; falling back deterministically", platform, exc)
 
     return build_deterministic_output(structured_items, platform)
 
@@ -623,7 +658,7 @@ def build_blog_fallback(structured_items: list[dict[str, str]]) -> str:
         "tags: [AI, roundup, automation]",
         "---",
         "",
-        "I care less about AI headlines than about what changes how I would actually build. This roundup filters for the developments that seem most relevant to real systems work.",
+        "I care less about AI headlines than about where new developments could actually go. These are the ones from today's scan that made me think of a concrete application.",
         "",
     ]
     for item in structured_items[:5]:
@@ -633,19 +668,26 @@ def build_blog_fallback(structured_items: list[dict[str, str]]) -> str:
                 "",
                 f"{item['summary']} [Source]({item['source_url']})",
                 "",
-                f"{item['relevance_to_builders']} {item['context']}",
+                f"Where it could apply: {item['application']} {item['relevance_to_builders']}",
                 "",
-                f"My take: {item['insight']} {item['application']}",
+                f"What could come next: {item['insight']} {item['context']}",
                 "",
                 f"The catch: {item['counterpoint']}",
                 "",
-                f"What I'd do: {item['action']}",
+                f"One thing I'd watch: {item['action']}",
                 "",
             ]
         )
     lines.append("## References")
     lines.extend(f"- [{item['hook']}]({item['source_url']})" for item in structured_items[:5])
     return "\n".join(lines).strip()
+
+
+def ensure_blog_disclaimer(content: str) -> str:
+    """Append the style-guide disclaimer to a blog post unless it is already present."""
+    if BLOG_DISCLAIMER_MARKER in content:
+        return content
+    return content.rstrip() + BLOG_DISCLAIMER
 
 
 def build_x_fallback(structured_items: list[dict[str, str]]) -> str:
@@ -713,15 +755,17 @@ def generate(
     if structured_items is None:
         structured_items = structure_news_items(news_items, template_path, limit=5)
     gemini_key = get_gemini_api_key()
-    prefer_claude = os.getenv("CLAUDE_POLISH_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
+    prefer_claude = os.getenv("CLAUDE_ASSEMBLY_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}
 
     content = assemble_with_model(structured_items, platform, style_guide, prefer_claude=prefer_claude, gemini_key=gemini_key)
     content = post_process_output(content, platform, structured_items)
-    if validate_output(content, platform, structured_items):
-        return content
+    if not validate_output(content, platform, structured_items):
+        LOGGER.warning("Structured assembly output failed validation for %s; using deterministic fallback", platform)
+        content = build_deterministic_output(structured_items, platform)
 
-    LOGGER.warning("Structured assembly output failed validation for %s; using deterministic fallback", platform)
-    return build_deterministic_output(structured_items, platform)
+    if platform == "blog":
+        content = ensure_blog_disclaimer(content)
+    return content
 
 
 def run_structured_test(style_file: str, template_file: str | None) -> dict[str, Any]:

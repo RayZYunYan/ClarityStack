@@ -29,9 +29,9 @@ def load_style_guide(style_guide_path: str) -> str:
     return textwrap.dedent(
         """
         Voice:
-        - Write like a developer building AI systems, not a journalist.
-        - Use first person freely and give concrete technical judgments.
-        - Sound like a senior engineer talking to peers, not a press release.
+        - Write like a curious, technically-minded person connecting new developments to real-world problems, not a journalist.
+        - Use first person freely and be specific about where each development could apply.
+        - Think out loud in an intellectually honest way, not like a press release.
         """
     ).strip()
 
@@ -63,7 +63,7 @@ def build_prompt(content: str, platform: str, style_guide: str) -> str:
             Polish this Markdown blog post.
             - Preserve Markdown formatting and frontmatter exactly
             - If there is an H1 heading immediately after the frontmatter that repeats the title, remove it — the layout renders the title from frontmatter already
-            - Keep the writing in first person with clear technical judgment
+            - Keep the writing in first person, specific about where each development could apply
             - Improve transitions between sections without flattening the voice
             - Make code references and technical terms precise
             - Keep links inline in relevant paragraphs
@@ -91,14 +91,13 @@ def build_prompt(content: str, platform: str, style_guide: str) -> str:
 
         Rules:
         1. Write in first person. Use "I" freely.
-        2. For each topic, after explaining what it is, add a personal take that includes a specific technical judgment. Prefer lines like "I'd use this for X but not Y because Z."
-        3. Never use hedge phrases like "it remains to be seen", "time will tell", "teams should consider", "the practical stance is", or "the broader pattern". Replace them with concrete opinions.
-        4. Reference the author's own tech stack when relevant: local inference on a Mac mini, NemoClaw sandbox, and multi-model pipelines with Gemini + Claude.
-        5. Tone: like a senior engineer talking to peers at lunch, not a press release.
-        6. If a topic is boring or overhyped, say so. Not every item needs praise.
-        7. End each topic section with either a concrete next step or a clear dismissal.
-        8. The References section at the bottom must use clickable Markdown links, not raw URLs.
-        9. Format all references as Markdown links. Never output raw URLs.
+        2. For each topic, after explaining what it is, name a specific industry, workflow, or product where it could apply, then what could come next. Prefer lines like "This made me think of X because..."
+        3. Never use hedge phrases like "it remains to be seen", "time will tell", "teams should consider", "the practical stance is", or "the broader pattern". Replace them with concrete thoughts.
+        4. Tone: like someone thinking out loud in an intellectually honest way, not a press release. Do not claim hands-on experience the author does not have.
+        5. If a topic is boring or overhyped, say so. Not every item needs praise.
+        6. End each topic section with a concrete possibility worth watching, or say plainly who can skip it.
+        7. The References section at the bottom must use clickable Markdown links, not raw URLs.
+        8. Format all references as Markdown links. Never output raw URLs.
 
         Style guide:
         {style_guide}

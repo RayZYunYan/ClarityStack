@@ -14,18 +14,24 @@ from dotenv import load_dotenv
 try:
     from .anthropic_client import call_anthropic, get_anthropic_api_key
     from .paths import ENV_PATH, REVIEW_DIR
-    from .notify_dispatch import promote_pending_to_approved
+    from .notify_dispatch import cleanup_review_bundle, promote_pending_to_approved
 except ImportError:
     from anthropic_client import call_anthropic, get_anthropic_api_key
     from paths import ENV_PATH, REVIEW_DIR
-    from notify_dispatch import promote_pending_to_approved
+    from notify_dispatch import cleanup_review_bundle, promote_pending_to_approved
 
 LOGGER = logging.getLogger(__name__)
 
 PENDING_FLAG = REVIEW_DIR / ".pending"
 APPROVED_FLAG = REVIEW_DIR / ".approved"
+NO_CONTENT_FLAG = REVIEW_DIR / ".no_content"
+ERROR_FLAG = REVIEW_DIR / ".error"
 MODIFICATION_REQUEST = REVIEW_DIR / "modification_request.txt"
 PENDING_DIR = REVIEW_DIR / "pending"
+
+# Whole-message matches only, so "reject the second paragraph" is still a modification request.
+APPROVE_COMMANDS = {"ok", "approve"}
+DISCARD_COMMANDS = {"reject", "skip", "cancel", "拒绝", "跳过", "取消"}
 
 PLATFORM_FILES = {
     "blog": "blog.md",
@@ -97,18 +103,35 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
     @client.event
     async def on_ready() -> None:
         LOGGER.info("Discord bot ready as %s", client.user)
+        channel = client.get_channel(channel_id)
+        if not channel:
+            return
+
+        if ERROR_FLAG.exists():
+            detail = ERROR_FLAG.read_text(encoding="utf-8").strip()[:1500] or "（无详细信息）"
+            await channel.send(f"⚠️ 管道已中止，本次未生成稿件：\n```\n{detail}\n```")
+            ERROR_FLAG.unlink()
+            LOGGER.info("Sent pipeline error notification")
+            await client.close()
+            return
+
+        if NO_CONTENT_FLAG.exists():
+            await channel.send("📭 今日无新内容：所有数据源均不可用或近期已覆盖，跳过发布。")
+            NO_CONTENT_FLAG.unlink()
+            LOGGER.info("Sent no-content notification")
+            await client.close()
+            return
+
         if PENDING_FLAG.exists():
-            channel = client.get_channel(channel_id)
-            if channel:
-                summary, blog_path = read_preview()
-                kwargs = {"file": discord.File(blog_path, filename="blog_preview.md")} if blog_path else {}
-                await channel.send(
-                    f"**ClarityStack 待审稿**\n\n{summary}\n\n"
-                    "回复 `ok` 批准发布，或回复修改需求。",
-                    **kwargs
-                )
-                PENDING_FLAG.unlink()
-                LOGGER.info("Sent pending notification and removed .pending flag")
+            summary, blog_path = read_preview()
+            kwargs = {"file": discord.File(blog_path, filename="blog_preview.md")} if blog_path else {}
+            await channel.send(
+                f"**ClarityStack 待审稿**\n\n{summary}\n\n"
+                "回复 `ok` 批准发布，回复 `拒绝` 丢弃本次稿件，或回复修改需求。",
+                **kwargs
+            )
+            PENDING_FLAG.unlink()
+            LOGGER.info("Sent pending notification and removed .pending flag")
 
     @client.event
     async def on_message(message: discord.Message) -> None:
@@ -119,7 +142,18 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
         if message.author.id != owner_id:
             return
 
-        if message.content.strip().lower() == "ok":
+        text = message.content.strip().lower()
+
+        if text in DISCARD_COMMANDS:
+            cleanup_review_bundle()
+            for path in (PENDING_FLAG, MODIFICATION_REQUEST):
+                if path.exists():
+                    path.unlink()
+            await message.channel.send("🗑️ 已丢弃本次稿件，不会发布。")
+            LOGGER.info("Review bundle discarded by owner")
+            await client.close()
+
+        elif text in APPROVE_COMMANDS:
             promote_pending_to_approved()
             APPROVED_FLAG.touch()
             await message.channel.send("✅ 已批准，正在发布...")
@@ -133,8 +167,11 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
             if result.returncode == 0:
                 await message.channel.send("🚀 发布成功")
                 LOGGER.info("publish-approved completed successfully")
+                await client.close()
             else:
-                await message.channel.send(f"⚠️ 发布失败：{result.stderr.strip()[-200:]}")
+                await message.channel.send(
+                    f"⚠️ 发布失败：{result.stderr.strip()[-200:]}\n未成功的平台稿件已保留，回复 `ok` 重试。"
+                )
                 LOGGER.error("publish-approved failed: %s", result.stderr.strip())
 
         else:
@@ -149,7 +186,7 @@ def build_bot(channel_id: int, owner_id: int) -> discord.Client:
                 kwargs = {"file": discord.File(blog_path, filename="blog_preview.md")} if blog_path else {}
                 await message.channel.send(
                     f"📝 修改完成，更新后预览：\n\n{summary}\n\n"
-                    "回复 `ok` 发布，或继续发送修改需求。",
+                    "回复 `ok` 发布，回复 `拒绝` 丢弃，或继续发送修改需求。",
                     **kwargs
                 )
             else:
